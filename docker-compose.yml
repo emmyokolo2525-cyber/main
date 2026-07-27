@@ -1,0 +1,56 @@
+# docker-compose.yml  —  production stack for Harpocrates
+#
+# Usage:
+#   1. Copy backend/.env.example  → backend/.env  and fill in all values.
+#   2. Create a project-root .env file with the VITE_* build variables.
+#   3. docker compose up --build -d
+#
+# The frontend image bakes the VITE_* variables in at build time (Vite
+# inlines them into the static bundle), so you must rebuild the frontend
+# image whenever you change those values.
+#
+# Backend environment variables are injected at container start time via
+# env_file, so no rebuild is needed for backend config changes.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: harpocrates-backend:latest
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "${BACKEND_PORT:-5050}:5050"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5050/ready', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # VITE_* values are baked into the static bundle at build time.
+      # Pass them from an environment file or as shell variables.
+      args:
+        VITE_API_BASE: ${VITE_API_BASE}
+        VITE_STELLAR_RPC_URL: ${VITE_STELLAR_RPC_URL}
+        VITE_STELLAR_READONLY_SOURCE: ${VITE_STELLAR_READONLY_SOURCE}
+        VITE_HARPOCRATES_REGISTRY_ID: ${VITE_HARPOCRATES_REGISTRY_ID}
+    image: harpocrates-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy

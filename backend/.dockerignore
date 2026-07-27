@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Test files
+test_*.py
+*.test.py
+backend-test.log
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Coverage / profiling
+.coverage
+htmlcov/
+.pytest_cache/
+*.prof
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -12,7 +12,7 @@ Harpocrates is a Stellar Testnet evidence protocol for sensitive video. It regis
 frontend/   React app for Evidence Studio and Verification Portal
 backend/    Flask video metadata service
 contracts/  Soroban contract workspace
-project.md  Product and architecture spec
+DEPLOY.md   Hosted deployment guide (Docker Compose, Railway, Render, Fly.io)
 DESIGN.md   Visual design source
 ```
 
@@ -114,10 +114,9 @@ Done:
 - Typed frontend registry client and manual production chunking for Stellar, Noir, React, and proof runtime bundles.
 - Backend production hardening: security headers, readiness checks, stricter upload/metadata validation, safer CORS config, and production-gated local Noir worker.
 - Typed Soroban contract events with `#[contractevent]` for proof, issuer, verifier, and credential-root lifecycle events.
+- Hosted deployment packaging: Docker Compose, Railway, Render, and Fly.io guides; `.dockerignore` files; frontend Dockerfile build-arg wiring for `VITE_*` vars; nginx CSP and cross-origin isolation headers; GitHub Actions release workflow for `ghcr.io` image publishing.
 
-Next:
-
-- Hosted deployment packaging for frontend/backend environments.
+See [DEPLOY.md](DEPLOY.md) for full deployment instructions.
 
 ## E2E Smoke Test
 
