@@ -19,6 +19,8 @@ export type RegisterProofInput = {
     publicInputs: string
     proof: string
   }
+  /** When true, routes silent-witness proofs through the quorum verifier set (#126). */
+  useQuorum?: boolean
 }
 
 export type NormalizedRegisterProofInput = {
@@ -29,6 +31,7 @@ export type NormalizedRegisterProofInput = {
   metadataHash: Hex32
   proofId: Hex32
   silentWitness?: SilentWitnessArtifacts
+  useQuorum?: boolean
 }
 
 export type RegisterProofResult = {
@@ -48,6 +51,15 @@ export type ChainProofRecord = {
 
 export type RegistryMethod =
   | 'register_anonymous_verified'
+  | 'register_anon_verified_quorum'
   | 'register_source'
   | 'register_seal'
   | 'get_by_video'
+  | 'propose_verifier_set_1'
+  | 'propose_verifier_set_2'
+  | 'propose_verifier_set_3'
+  | 'activate_verifier_set'
+  | 'disable_verifier_set'
+  | 'get_active_verifier_set'
+  | 'get_verifier_set'
+  | 'get_verifier_set_member'
