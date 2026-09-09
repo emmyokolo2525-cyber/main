@@ -2,13 +2,18 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
-export default defineConfig({
+const config = {
   plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: [],
+  },
   build: {
     chunkSizeWarningLimit: 3600,
     rollupOptions: {
       output: {
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (id.includes('@noir-lang')) return 'noir-runtime'
           if (id.includes('@stellar') || id.includes('@scure') || id.includes('@noble')) {
             return 'stellar'
@@ -18,4 +23,6 @@ export default defineConfig({
       },
     },
   },
-})
+}
+
+export default defineConfig(config)

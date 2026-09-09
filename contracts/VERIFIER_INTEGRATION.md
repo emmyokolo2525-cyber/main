@@ -40,10 +40,12 @@ Done:
 - PowerShell artifact export script for `proof`, `public_inputs`, and `vk`.
 - Testnet UltraHonk verifier deployment for the Silent Witness VK.
 - Testnet `register_anonymous_verified` registration through the verifier.
+- **Bounded proof aggregation** via `silent_witness_aggregator` circuit and
+  `register_batch_verified` contract entry point (NEW).
 
 Not done yet:
 
-- Browser-side proof generation.
+- Browser-side proof generation (including the aggregator circuit).
 
 ## Recommended Path
 
@@ -78,6 +80,20 @@ Build and verify the local Noir proof:
 .\zk\noir\scripts\prepare-soroban-verifier-artifacts.ps1
 ```
 
+Build and verify the aggregated proof circuit:
+
+```bash
+./zk/noir/scripts/build-silent-witness-aggregator.sh
+```
+
+Generate an aggregated proof for multiple video hashes:
+
+```bash
+./zk/noir/scripts/generate-silent-witness-aggregator.sh \
+  <video-hash-0-hex> <video-hash-1-hex> \
+  <credential-secret-field> <nullifier-secret-field>
+```
+
 Export generated artifacts as hex:
 
 ```powershell
@@ -100,3 +116,35 @@ Configure the verifier after deployment:
   -Admin harpocrates-admin `
   -Verifier YOUR_VERIFIER_CONTRACT_ID
 ```
+
+## Batch Aggregation (`register_batch_verified`)
+
+The registry contract now supports **bounded proof aggregation** via the
+`register_batch_verified` entry point.  This accepts a single aggregated
+UltraHonk proof (produced by the `silent_witness_aggregator` circuit) that
+covers up to **8** video hashes under the same credential identity.
+
+### Public input layout for aggregated proofs
+
+```text
+[   0..  32)  domain_separator           – AGGREGATION_DOMAIN_SEPARATOR
+[  32.. 160)  element_0                  – video_hash_hi, video_hash_lo,
+                                            credential_root, nullifier
+[ 160.. 288)  element_1                  – (same layout)
+...
+[ 928..1056)  element_7                  – (same layout)
+```
+
+Each element follows the same 128-byte layout as the individual
+`register_anonymous_verified` public inputs.  All credential roots within
+the batch must be identical (same identity).
+
+### How batch size works
+
+- The circuit accepts exactly **8** elements (padded with zero video hashes).
+- The contract validates the declared batch size matches the public input
+  length: `32 + (batch_size * 128)` bytes.
+- Each element gets a deterministic sub-proof_id derived from the `batch_id`
+  and its element index.
+- Per-element nullifiers prevent individual proofs from being replayed outside
+  the batch context.

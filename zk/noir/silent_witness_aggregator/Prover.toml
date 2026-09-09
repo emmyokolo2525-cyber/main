@@ -1,0 +1,42 @@
+credential_secret = "12345"
+nullifier_secret = "67890"
+
+video_hash_hi_0 = "22685491128062564230891640495451214097"
+video_hash_lo_0 = "45370982256125128461783280990902428194"
+credential_root_0 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_0 = "0x266fe0dec6dc9e1a4a7b0b3c71876074eaca128b05b371cf6677d2e62f795fe6"
+
+video_hash_hi_1 = "11111111111111111111111111111111111111"
+video_hash_lo_1 = "22222222222222222222222222222222222222"
+credential_root_1 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_1 = "0x1f531179c0c1df5faeb5de4f80ec53bc06b650e4932442bc457d740a5ec8bfea"
+
+video_hash_hi_2 = "0"
+video_hash_lo_2 = "0"
+credential_root_2 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_2 = "0x2048c85c4d0924f99a304faefc0fbd2d21226d13c2c0f6ad31a1814b879e6e0f"
+
+video_hash_hi_3 = "0"
+video_hash_lo_3 = "0"
+credential_root_3 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_3 = "0x2048c85c4d0924f99a304faefc0fbd2d21226d13c2c0f6ad31a1814b879e6e0f"
+
+video_hash_hi_4 = "0"
+video_hash_lo_4 = "0"
+credential_root_4 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_4 = "0x2048c85c4d0924f99a304faefc0fbd2d21226d13c2c0f6ad31a1814b879e6e0f"
+
+video_hash_hi_5 = "0"
+video_hash_lo_5 = "0"
+credential_root_5 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_5 = "0x2048c85c4d0924f99a304faefc0fbd2d21226d13c2c0f6ad31a1814b879e6e0f"
+
+video_hash_hi_6 = "0"
+video_hash_lo_6 = "0"
+credential_root_6 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_6 = "0x2048c85c4d0924f99a304faefc0fbd2d21226d13c2c0f6ad31a1814b879e6e0f"
+
+video_hash_hi_7 = "0"
+video_hash_lo_7 = "0"
+credential_root_7 = "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9"
+nullifier_7 = "0x2048c85c4d0924f99a304faefc0fbd2d21226d13c2c0f6ad31a1814b879e6e0f"

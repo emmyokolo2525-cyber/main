@@ -1,3 +1,4 @@
+
 import React from 'react'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -81,4 +82,100 @@ describe('App', () => {
     expect(fetch).not.toHaveBeenCalled()
     expect(screen.getByText(/received hash/i).nextElementSibling).toHaveTextContent(/not generated/i)
   })
+
+  it('opens the batch verification workspace from the navbar', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /batch workspace/i }))
+
+    expect(screen.getByRole('heading', { level: 2, name: /evidence batch verification workspace/i })).toBeInTheDocument()
+  })
+
+  // ── Accessibility improvements ──────────────────────────────────────────────
+
+  it('renders a skip-to-content link as the first focusable element', () => {
+    render(<App />)
+    const skipLink = screen.getByText('Skip to main content')
+    expect(skipLink).toBeInTheDocument()
+    expect(skipLink).toHaveClass('skip-link')
+    expect(skipLink).toHaveAttribute('href', '#main-content')
+  })
+
+  it('renders polite and assertive sr-only aria-live regions', () => {
+    render(<App />)
+    const polite = screen.getByRole('status')
+    expect(polite).toHaveClass('sr-only')
+    expect(polite).toHaveAttribute('aria-live', 'polite')
+    expect(polite).toHaveAttribute('aria-atomic', 'true')
+
+    const assertive = screen.getByRole('alert')
+    expect(assertive).toHaveClass('sr-only')
+    expect(assertive).toHaveAttribute('aria-live', 'assertive')
+    expect(assertive).toHaveAttribute('aria-atomic', 'true')
+  })
+
+  it('sets aria-current on the active nav button', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    const evidenceBtn = screen.getByRole('button', { name: /^evidence$/i })
+    const verifyBtn = screen.getByRole('button', { name: /^verify$/i })
+
+    await user.click(evidenceBtn)
+    expect(evidenceBtn).toHaveAttribute('aria-current', 'page')
+    expect(verifyBtn).not.toHaveAttribute('aria-current')
+
+    await user.click(verifyBtn)
+    expect(verifyBtn).toHaveAttribute('aria-current', 'page')
+    expect(evidenceBtn).not.toHaveAttribute('aria-current')
+  })
+
+  it('renders the nav with aria-label "Site navigation"', () => {
+    render(<App />)
+    expect(screen.getByRole('navigation')).toHaveAttribute('aria-label', 'Site navigation')
+  })
+
+  it('renders the main region with id="main-content" for skip-link target', () => {
+    render(<App />)
+    const main = document.getElementById('main-content')
+    expect(main).toBeInTheDocument()
+    expect(main).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('renders the app-level sr-only aria-live polite status region', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /begin evidence flow/i }))
+
+    const statusRegions = screen.getAllByRole('status')
+    const srStatus = statusRegions.find((r) => r.classList.contains('sr-only'))
+    expect(srStatus).toBeInTheDocument()
+    expect(srStatus).toHaveAttribute('aria-live', 'polite')
+  })
+
+  it('renders tier tabs with aria-pressed attribute', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /begin evidence flow/i }))
+
+    const silentTab = screen.getByRole('button', { name: /silent witness/i })
+    expect(silentTab).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByRole('button', { name: /consistent source/i }))
+    expect(silentTab).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('renders the evidence studio section with aria-busy initially false', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /begin evidence flow/i }))
+
+    const studio = screen.getByRole('region', { name: /evidence studio workspace/i })
+    expect(studio).not.toHaveAttribute('aria-busy')
+  })
 })
+

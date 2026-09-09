@@ -1,20 +1,20 @@
-/// Duplicate-proof and video-hash invariant tests (#45)
-///
-/// Uniqueness rules enforced by the registry:
-///
-/// | Key             | Scope          | Error on collision    |
-/// |-----------------|----------------|-----------------------|
-/// | proof_id        | global         | DuplicateProof  (#4)  |
-/// | video_hash      | global         | DuplicateVideo  (#5)  |
-/// | nullifier       | global         | DuplicateNullifier(#6)|
-///
-/// These rules apply identically across all three identity tiers.
-///
-/// After every rejected call the suite verifies that:
-///   - The original record is unchanged in storage.
-///   - No new Video or Proof key was written.
-///
-/// Events are verified via `env.events().all()`.
+//! Duplicate-proof and video-hash invariant tests (#45)
+//!
+//! Uniqueness rules enforced by the registry:
+//!
+//! | Key             | Scope          | Error on collision    |
+//! |-----------------|----------------|-----------------------|
+//! | proof_id        | global         | DuplicateProof  (#4)  |
+//! | video_hash      | global         | DuplicateVideo  (#5)  |
+//! | nullifier       | global         | DuplicateNullifier(#6)|
+//!
+//! These rules apply identically across all three identity tiers.
+//!
+//! After every rejected call the suite verifies that:
+//!   - The original record is unchanged in storage.
+//!   - No new Video or Proof key was written.
+//!
+//! Events are verified via `env.events().all()`.
 #[cfg(test)]
 use super::*;
 #[cfg(test)]
@@ -35,7 +35,8 @@ struct MockVerifier2;
 #[contractimpl]
 impl MockVerifier2 {
     pub fn verify_proof(_env: Env, public_inputs: Bytes, proof: Bytes) {
-        if public_inputs.len() != 128 || proof.is_empty() {
+        let len = public_inputs.len();
+        if (len != 128 && len != 192) || proof.is_empty() {
             panic!("invalid proof");
         }
     }
@@ -68,13 +69,45 @@ fn make_public_inputs(
     credential_root.copy_into_slice(&mut cr);
     let mut nu = [0u8; 32];
     nullifier.copy_into_slice(&mut nu);
-
-    let mut buf = [0u8; 128];
+    // Compute expected domain tag
+    let domain_tag = expected_domain_tag_inv(env);
+    let mut dt = [0u8; 32];
+    domain_tag.copy_into_slice(&mut dt);
+    // 5 public inputs × 32 bytes = 160 bytes
+    let mut buf = [0u8; 160];
     buf[16..32].copy_from_slice(&vh[..16]);
     buf[48..64].copy_from_slice(&vh[16..]);
     buf[64..96].copy_from_slice(&cr);
     buf[96..128].copy_from_slice(&nu);
+    buf[128..160].copy_from_slice(&dt);
     Bytes::from_array(env, &buf)
+}
+
+#[cfg(test)]
+fn expected_domain_tag_inv(env: &Env) -> BytesN<32> {
+    let protocol: [u8; 32] = [
+        0x26, 0x1e, 0x9f, 0x6e, 0x39, 0xe3, 0xc1, 0xae,
+        0x6a, 0xca, 0x9f, 0x29, 0xe8, 0x4c, 0x10, 0xd5,
+        0x9c, 0x82, 0xd5, 0xf4, 0xb4, 0x0c, 0x21, 0xc1,
+        0xb7, 0xe3, 0xc0, 0x1a, 0xd5, 0x71, 0xc2, 0x1,
+    ];
+    let version: [u8; 32] = [
+        0x0c, 0x89, 0xef, 0xf4, 0xec, 0x8e, 0x39, 0xa0,
+        0x1e, 0x9f, 0x19, 0x54, 0x7a, 0x0c, 0xc9, 0xdd,
+        0x7f, 0xd2, 0xa9, 0x7d, 0x79, 0xba, 0x4d, 0x94,
+        0xfd, 0x32, 0xe9, 0x7a, 0x1f, 0x5a, 0xc6, 0x23,
+    ];
+    let network: [u8; 32] = [
+        0x2a, 0x2c, 0x3f, 0x48, 0xce, 0x2e, 0x3c, 0x2f,
+        0x1e, 0x6c, 0x89, 0xb1, 0x8d, 0x64, 0xb5, 0xf5,
+        0xc1, 0xf8, 0x8a, 0x59, 0xa0, 0xd9, 0xbc, 0x82,
+        0xcb, 0x61, 0xa1, 0xe8, 0xcb, 0x77, 0xa5, 0xf,
+    ];
+    let mut preimage = Bytes::new(env);
+    preimage.extend_from_array(&protocol);
+    preimage.extend_from_array(&version);
+    preimage.extend_from_array(&network);
+    env.crypto().sha256(&preimage).into()
 }
 
 /// The credential root used in anonymous-verified calls throughout this module.
@@ -224,12 +257,7 @@ fn invariant_duplicate_video_storage_unchanged() {
     let video_hash = b32(&env, 0x60);
     let original_proof_id = b32(&env, 0x61);
 
-    client.register_source(
-        &source,
-        &video_hash,
-        &b32(&env, 0x62),
-        &original_proof_id,
-    );
+    client.register_source(&source, &video_hash, &b32(&env, 0x62), &original_proof_id);
 
     // Try to overwrite with a different proof_id for the same video
     let result = env.try_invoke_contract::<Option<ProofRecord>, RegistryError>(
@@ -446,4 +474,3 @@ fn invariant_duplicate_rejection_emits_no_event() {
         "rejected call must not emit new events"
     );
 }
-

@@ -1,0 +1,411 @@
+name: E2E Testnet
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Stellar network to target'
+        required: true
+        default: 'testnet'
+        type: choice
+        options:
+          - testnet
+          - futurenet
+      skip_issuer:
+        description: 'Skip issuer setup'
+        required: false
+        default: false
+        type: boolean
+      stellar_timeout:
+        description: 'Timeout in seconds for Stellar operations'
+        required: false
+        default: 300
+        type: number
+  schedule:
+    # Nightly E2E health check
+    - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: e2e-testnet-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STELLAR_NETWORK: ${{ inputs.network || 'testnet' }}
+  STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+  STELLAR_ADMIN_SECRET: ${{ secrets.STELLAR_ADMIN_SECRET }}
+  STELLAR_ISSUER_SECRET: ${{ secrets.STELLAR_ISSUER_SECRET }}
+  STELLAR_TIMEOUT: ${{ inputs.stellar_timeout || 300 }}
+  SKIP_ISSUER: ${{ inputs.skip_issuer || false }}
+  BACKEND_PORT: 5050
+  APP_ENV: testing
+  CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+  DATABASE_URL: ""
+  NOIR_WORKER_ENABLED: "false"
+
+jobs:
+  e2e-testnet:
+    name: End-to-end Stellar testnet validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Rust toolchain (Stellar/Soroban)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libclang-dev
+
+      - name: Install Stellar CLI
+        run: |
+          curl -fsSL https://github.com/stellar/stellar-cli/releases/latest/download/stellar-cli-ubuntu-x86_64.tar.gz \
+            | sudo tar xz -C /usr/local/bin stellar
+          stellar version
+
+      - name: Install pinned Python dependencies
+        run: |
+          cd backend
+          python -m venv .venv
+          .venv/bin/python -m pip install --requirement requirements.txt
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run Soroban contract tests
+        run: |
+          cd contracts
+          cargo test
+
+      - name: Build registry WASM
+        run: |
+          cd contracts
+          stellar contract build
+
+      - name: Resolve or create ephemeral Stellar identities
+        id: identities
+        env:
+          ADMIN_SK: ${{ secrets.STELLAR_ADMIN_SECRET }}
+          ISSUER_SK: ${{ secrets.STELLAR_ISSUER_SECRET }}
+        run: |
+          set -euo pipefail
+          EPHEMERAL_DIR="$(mktemp -d)"
+
+          if [ -n "$ADMIN_SK" ]; then
+            echo "Using provided Stellar admin identity"
+            stellar keys add --secret-key "$ADMIN_SK" harpocrates-ci-admin 2>/dev/null || true
+          else
+            echo "Generating ephemeral Stellar admin identity"
+            stellar keys generate harpocrates-ci-admin
+            stellar keys show harpocrates-ci-admin
+          fi
+
+          if [ "$SKIP_ISSUER" != "true" ] && [ -n "$ISSUER_SK" ]; then
+            echo "Using provided Stellar issuer identity"
+            stellar keys add --secret-key "$ISSUER_SK" harpocrates-ci-issuer 2>/dev/null || true
+          elif [ "$SKIP_ISSUER" != "true" ]; then
+            echo "Generating ephemeral Stellar issuer identity"
+            stellar keys generate harpocrates-ci-issuer
+          fi
+
+          echo "admin=harpocrates-ci-admin" >> "$GITHUB_OUTPUT"
+          echo "issuer=harpocrates-ci-issuer" >> "$GITHUB_OUTPUT"
+          echo "ephemeral_dir=$EPHEMERAL_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy HarpocratesRegistry to ${{ env.STELLAR_NETWORK }}
+        id: deploy
+        env:
+          ADMIN: harpocrates-ci-admin
+        run: |
+          set -euo pipefail
+          DEPLOY_OUTPUT=$(stellar contract deploy \
+            --wasm contracts/target/wasm32v1-none/release/harpocrates_registry.wasm \
+            --source "$ADMIN" \
+            --network "$STELLAR_NETWORK" 2>&1)
+          echo "$DEPLOY_OUTPUT"
+          CONTRACT_ID=$(echo "$DEPLOY_OUTPUT" | grep -oE 'C[A-Z0-9]{55}' | head -1)
+          if [ -z "$CONTRACT_ID" ]; then
+            echo "::error::Failed to extract contract ID from deploy output"
+            exit 1
+          fi
+          echo "contract_id=$CONTRACT_ID" >> "$GITHUB_OUTPUT"
+          echo "Deployed HarpocratesRegistry: $CONTRACT_ID"
+
+      - name: Initialize registry admin
+        env:
+          ADMIN: harpocrates-ci-admin
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+        run: |
+          stellar contract invoke \
+            --id "$CONTRACT_ID" \
+            --source "$ADMIN" \
+            --network "$STELLAR_NETWORK" \
+            -- \
+            init \
+            --admin "$ADMIN"
+
+      - name: Attach Silent Witness verifier
+        env:
+          ADMIN: harpocrates-ci-admin
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+          VERIFIER: ${{ secrets.STELLAR_VERIFIER_ID || 'CCP2EQPKT5XAYTOARX3LGHNMJ37A6W2WY3H54MRIHEZVTVAZZPUSGZQJ' }}
+        run: |
+          stellar contract invoke \
+            --id "$CONTRACT_ID" \
+            --source "$ADMIN" \
+            --network "$STELLAR_NETWORK" \
+            -- \
+            set_verifier \
+            --admin "$ADMIN" \
+            --verifier "$VERIFIER"
+
+      - name: Add public seal issuer (optional)
+        if: env.SKIP_ISSUER != 'true'
+        env:
+          ADMIN: harpocrates-ci-admin
+          ISSUER: harpocrates-ci-issuer
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+        run: |
+          ISSUER_ADDRESS=$(stellar keys address "$ISSUER")
+          ISSUER_METADATA_HASH=$(echo -n "harpocrates:issuer:$ISSUER_ADDRESS" | sha256sum | cut -d' ' -f1)
+          stellar contract invoke \
+            --id "$CONTRACT_ID" \
+            --source "$ADMIN" \
+            --network "$STELLAR_NETWORK" \
+            -- \
+            add_issuer \
+            --admin "$ADMIN" \
+            --issuer "$ISSUER_ADDRESS" \
+            --metadata_hash "$ISSUER_METADATA_HASH"
+
+      - name: Start backend server
+        id: backend
+        env:
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+        run: |
+          cd backend
+          .venv/bin/python -m pip install gunicorn 2>/dev/null || true
+          .venv/bin/gunicorn --bind 127.0.0.1:$BACKEND_PORT \
+            --workers 2 \
+            --threads 4 \
+            --timeout 240 \
+            app:app &
+          BACKEND_PID=$!
+          echo "pid=$BACKEND_PID" >> "$GITHUB_OUTPUT"
+
+          # Wait for backend to be ready
+          for i in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:$BACKEND_PORT/health" > /dev/null 2>&1; then
+              echo "Backend is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          VITE_API_BASE="http://127.0.0.1:$BACKEND_PORT" \
+          VITE_STELLAR_RPC_URL="$STELLAR_RPC_URL" \
+          VITE_HARPOCRATES_REGISTRY_ID="${{ steps.deploy.outputs.contract_id }}" \
+          npm run build
+
+      - name: Run end-to-end smoke test
+        id: e2e
+        env:
+          CONTRACT_ID: ${{ steps.deploy.outputs.contract_id }}
+          ADMIN: harpocrates-ci-admin
+          CREDENTIAL_SECRET: ${{ secrets.E2E_CREDENTIAL_SECRET || '123456789' }}
+          NULLIFIER_SECRET: ${{ secrets.E2E_NULLIFIER_SECRET || '987654321' }}
+        run: |
+          set -euo pipefail
+
+          # Create synthetic source video
+          ffmpeg -y -v error -f lavfi -i "testsrc=size=320x240:rate=30" \
+            -t 3 -pix_fmt yuv420p /tmp/source.mp4
+          SOURCE_HASH=$(sha256sum /tmp/source.mp4 | cut -d' ' -f1)
+          echo "source_hash=$SOURCE_HASH"
+
+          # Generate unique proof ID
+          RUN_ID=$(python3 -c "import uuid; print(uuid.uuid4().hex)")
+          PROOF_ID=$(echo -n "$SOURCE_HASH:$RUN_ID" | sha256sum | cut -d' ' -f1)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Build metadata JSON
+          METADATA=$(cat <<EOF
+          {
+            "protocol": "harpocrates",
+            "version": 1,
+            "tier": "silent",
+            "sourceHash": "$SOURCE_HASH",
+            "proofId": "$PROOF_ID",
+            "timestamp": "$TIMESTAMP",
+            "fileName": "source.mp4",
+            "testRun": "$RUN_ID"
+          }
+          EOF
+          )
+
+          # Embed metadata through steganography endpoint
+          echo "--- Embedding metadata ---"
+          EMBED_RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$BACKEND_PORT/api/stego/embed" \
+            -F "video=@/tmp/source.mp4;type=video/mp4" \
+            -F "metadata=$METADATA" \
+            -o /tmp/embedded.mp4 \
+            -w "%{http_code}" -D /tmp/embed-headers.txt)
+          echo "Embed HTTP status: $EMBED_RESPONSE"
+          if [ "$EMBED_RESPONSE" != "200" ]; then
+            echo "::error::Embed endpoint returned $EMBED_RESPONSE"
+            cat /tmp/embed-headers.txt
+            exit 1
+          fi
+          EMBEDDED_HASH=$(sha256sum /tmp/embedded.mp4 | cut -d' ' -f1)
+          METADATA_HASH=$(grep -i 'X-Harpocrates-Metadata-Hash' /tmp/embed-headers.txt | tr -d '\r' | awk '{print $2}')
+          echo "embedded_hash=$EMBEDDED_HASH"
+          echo "metadata_hash=$METADATA_HASH"
+
+          # Extract metadata from embedded video
+          echo "--- Extracting metadata ---"
+          EXTRACT_RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$BACKEND_PORT/api/stego/extract" \
+            -F "video=@/tmp/embedded.mp4;type=video/mp4" \
+            -H "Accept: application/json")
+          echo "$EXTRACT_RESPONSE" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          if data.get('metadata', {}).get('protocol') != 'harpocrates':
+            sys.exit(1)
+          if data.get('metadata', {}).get('proofId') != '$PROOF_ID':
+            sys.exit(1)
+          print('Extraction verified successfully')
+          " || {
+            echo "::error::Metadata extraction verification failed"
+            exit 1
+          }
+
+          # Register proof event via backend
+          echo "--- Registering proof event ---"
+          REGISTER_PAYLOAD=$(cat <<EOF
+          {
+            "fileName": "embedded.mp4",
+            "videoHash": "$EMBEDDED_HASH",
+            "metadataHash": "$METADATA_HASH",
+            "proofId": "$PROOF_ID",
+            "tier": "silent",
+            "txStatus": "LOCAL_ONLY",
+            "sourceAddress": "$ADMIN",
+            "contractId": "$CONTRACT_ID",
+            "e2e": {"runId": "$RUN_ID", "registerOnChain": false}
+          }
+          EOF
+          )
+          REGISTER_RESULT=$(curl -sf -X POST "http://127.0.0.1:$BACKEND_PORT/api/proofs/register" \
+            -H "Content-Type: application/json" \
+            -d "$REGISTER_PAYLOAD")
+          echo "$REGISTER_RESULT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          if not data.get('ok'):
+            sys.exit(1)
+          print('Proof event registered successfully')
+          " || {
+            echo "::error::Proof registration failed"
+            exit 1
+          }
+
+          # Lookup by video hash
+          echo "--- Looking up by video hash ---"
+          LOOKUP_RESULT=$(curl -sf "http://127.0.0.1:$BACKEND_PORT/api/proofs/by-video/$EMBEDDED_HASH")
+          echo "$LOOKUP_RESULT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          events = data.get('events', [])
+          if len(events) < 1:
+            sys.exit(1)
+          print(f'Found {len(events)} events for video hash')
+          " || {
+            echo "::error::Video hash lookup failed"
+            exit 1
+          }
+
+          # List proof events
+          echo "--- Listing proof events ---"
+          LIST_RESULT=$(curl -sf "http://127.0.0.1:$BACKEND_PORT/api/proofs")
+          echo "$LIST_RESULT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          events = data.get('events', [])
+          print(f'Total events in database: {len(events)}')
+          " || echo "Warning: Could not list events"
+
+          # Negative test: reject invalid video hash
+          echo "--- Negative test: invalid video hash ---"
+          NEGATIVE_RESULT=$(curl -sf "http://127.0.0.1:$BACKEND_PORT/api/proofs/by-video/notahex" -w "%{http_code}" -o /dev/null) || true
+          if [ "$NEGATIVE_RESULT" = "400" ]; then
+            echo "Negative test passed: invalid hash rejected with 400"
+          else
+            echo "::warning::Negative test: Expected 400, got $NEGATIVE_RESULT"
+          fi
+
+          # Output summary
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "source_hash=$SOURCE_HASH" >> "$GITHUB_OUTPUT"
+          echo "embedded_hash=$EMBEDDED_HASH" >> "$GITHUB_OUTPUT"
+          echo "metadata_hash=$METADATA_HASH" >> "$GITHUB_OUTPUT"
+          echo "proof_id=$PROOF_ID" >> "$GITHUB_OUTPUT"
+          echo "Summary: E2E testnet validation passed ✓"
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-testnet-artifacts-${{ github.run_id }}
+          path: |
+            /tmp/source.mp4
+            /tmp/embedded.mp4
+            /tmp/embed-headers.txt
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Cleanup Stellar identities
+        if: always()
+        run: |
+          stellar keys rm harpocrates-ci-admin 2>/dev/null || true
+          stellar keys rm harpocrates-ci-issuer 2>/dev/null || true
+          echo "Ephemeral identities cleaned up"
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -n "${{ steps.backend.outputs.pid }}" ]; then
+            kill "${{ steps.backend.outputs.pid }}" 2>/dev/null || true
+          fi

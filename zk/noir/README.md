@@ -1,16 +1,41 @@
 # Harpocrates Noir Circuits
 
-This folder contains the real Noir path for Tier 1 Silent Witness.
+This folder contains the real Noir path for Tier 1 Silent Witness,
+including the bounded proof aggregation circuit.
 
-## Circuit
+## Circuits
 
-`silent_witness` proves:
+### `silent_witness`
+
+The base circuit proves:
 
 - the prover knows a private `credential_secret`
 - the public `credential_root` is derived from that secret
 - the public `nullifier` is bound to `credential_secret`, `nullifier_secret`, `video_hash_hi`, and `video_hash_lo`
 
 The creator can register evidence without revealing the credential secret.
+
+### `silent_witness_aggregator` (NEW)
+
+Bounded aggregation circuit that bundles up to **8** individual Silent Witness
+proofs into a single verifiable UltraHonk proof.  All video hashes in the
+batch must be bound to the same credential identity.
+
+Key properties:
+
+- **MAX_AGGREGATION_SIZE = 8**: fixed upper bound enforced at circuit and
+  contract level.
+- **Same-identity binding**: all `credential_root` values in the batch must
+  match the root derived from the private `credential_secret`.
+- **Per-element nullifiers**: each video hash gets its own nullifier,
+  preventing replay of individual elements from the batch.
+- **Versioned domain separator**: the circuit is bound to a protocol version
+  tag, preventing cross-version proof replay.
+
+### `silent_witness_aggregator_helper` (NEW)
+
+Helper circuit that derives batch public inputs (`credential_root` and
+`nullifier` for each element) from private secrets and video hashes.
 
 ## Tooling
 
@@ -27,6 +52,39 @@ curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/ba
 source ~/.bashrc
 bbup
 ```
+
+## Reproducible builds
+
+Toolchain versions, the hermetic environment, artifact normalization rules, and
+resource limits are pinned in [`zk/toolchain.lock.json`](../toolchain.lock.json).
+The double-build reproducibility check is:
+
+```bash
+zk/noir/scripts/reproducible-build.sh          # build twice, compare, write manifest
+zk/noir/scripts/reproducible-build.sh --verify # build once, compare to the committed manifest
+python -m pytest zk/tools -q                   # tooling unit tests, no toolchain needed
+```
+
+See [docs/zk-reproducible-builds.md](../../docs/zk-reproducible-builds.md).
+
+## Benchmarks
+
+Cold/warm proof generation and verification baselines (browser, native, CI,
+Soroban-adjacent) live under `zk/bench/`:
+
+```bash
+python -m pytest zk/bench -q
+zk/bench/run.sh run --target ci --synthetic
+```
+
+See [docs/zk-benchmarks.md](../../docs/zk-benchmarks.md).
+
+## Cross-layer conformance
+
+The public-input codec shared by the backend, browser, and Soroban registry is
+pinned by [`zk/vectors/verifier_conformance_v1.json`](../vectors/verifier_conformance_v1.json).
+See [docs/zk-conformance-vectors.md](../../docs/zk-conformance-vectors.md) and
+[docs/zk-fuzzing.md](../../docs/zk-fuzzing.md).
 
 ## Build
 

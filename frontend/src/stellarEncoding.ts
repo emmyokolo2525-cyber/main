@@ -23,6 +23,10 @@ export function scBytes(value: HexBytes) {
   return nativeToScVal(hexToBytes(value))
 }
 
+export function scU32(value: number) {
+  return nativeToScVal(value)
+}
+
 export function bytesToHex(value: Uint8Array | ArrayLike<number>) {
   return Array.from(value, (byte) => Number(byte).toString(16).padStart(2, '0')).join('')
 }

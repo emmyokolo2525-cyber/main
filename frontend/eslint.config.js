@@ -21,7 +21,7 @@ export default defineConfig([
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/safeStorage.ts', 'src/**/*.test.{ts,tsx}', 'src/test/**'],
+    ignores: ['src/safeStorage.ts', 'src/credentialVault.ts', 'src/transactionStateMachine.ts', 'src/**/*.test.{ts,tsx}', 'src/test/**'],
     rules: {
       'no-restricted-syntax': [
         'error',

@@ -14,7 +14,7 @@ describe.each([
   })
 
   it('persists only the documented public UI preferences', () => {
-    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const setItem = vi.spyOn(window[storageName as 'localStorage' | 'sessionStorage'], 'setItem')
 
     safeStorage.setUiPreferences({
       currentView: 'studio',
@@ -34,7 +34,7 @@ describe.each([
   })
 
   it('excludes seeds, proof witnesses, proofs, and raw private inputs', () => {
-    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const setItem = vi.spyOn(window[storageName as 'localStorage' | 'sessionStorage'], 'setItem')
     const sensitive = {
       currentView: 'verify',
       selectedTier: 'source',

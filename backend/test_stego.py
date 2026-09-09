@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stego import canonical_metadata_hash, embed_metadata, extract_metadata, sha256_file
+from envelope import canonical_metadata_hash
+from stego import embed_metadata, extract_metadata, sha256_file
 
 
 class SteganographyTest(unittest.TestCase):

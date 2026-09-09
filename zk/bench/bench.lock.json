@@ -1,0 +1,98 @@
+{
+  "format": "harpocrates.zk-bench-lock",
+  "version": 1,
+  "description": "Pinned iteration counts, timeouts, size ceilings, and threshold policy for ZK proof generation and verification benchmarks across browser, native, CI, and Soroban-adjacent targets. See docs/zk-benchmarks.md.",
+
+  "fixture_id": "silent_witness.synthetic.v1",
+  "circuit": "silent_witness",
+
+  "targets": {
+    "native": {
+      "description": "nargo execute + bb prove / bb verify on the host CLI",
+      "cold_samples": 1,
+      "warm_discard": 1,
+      "warm_samples": 3,
+      "timeout_ms": 180000,
+      "max_concurrency": 1
+    },
+    "browser": {
+      "description": "Node/bb.js UltraHonk prove + verify (browser-equivalent path)",
+      "cold_samples": 1,
+      "warm_discard": 1,
+      "warm_samples": 3,
+      "timeout_ms": 180000,
+      "max_concurrency": 1
+    },
+    "ci": {
+      "description": "Same as native, tagged for CI runners; uses synthetic driver when toolchain is absent",
+      "cold_samples": 1,
+      "warm_discard": 0,
+      "warm_samples": 2,
+      "timeout_ms": 120000,
+      "max_concurrency": 1,
+      "allow_synthetic": true
+    },
+    "soroban_adjacent": {
+      "description": "Soroban host CPU/memory costs for register_anonymous_verified and public-input classify (not wall-clock UltraHonk)",
+      "cold_samples": 1,
+      "warm_discard": 0,
+      "warm_samples": 1,
+      "timeout_ms": 60000,
+      "max_concurrency": 1
+    }
+  },
+
+  "limits": {
+    "description": "Bounds so hostile or corrupted inputs cannot turn a bench run into a denial of service.",
+    "max_samples": 64,
+    "max_proof_bytes": 65536,
+    "min_proof_bytes": 64,
+    "max_public_input_bytes": 128,
+    "min_public_input_bytes": 128,
+    "max_witness_bytes": 16777216,
+    "max_report_bytes": 1048576,
+    "max_concurrency": 2,
+    "max_wall_clock_ms": 600000
+  },
+
+  "thresholds": {
+    "description": "Optional regression gates. Enforcement is inert until zk/bench/baselines.lock.json is committed.",
+    "baselines_path": "zk/bench/baselines.lock.json",
+    "compare_percentiles": ["p50", "p95"],
+    "size_keys": ["proof_bytes", "public_input_bytes"]
+  },
+
+  "privacy": {
+    "forbidden_report_keys": [
+      "proof",
+      "public_inputs",
+      "publicInputs",
+      "witness",
+      "credential_secret",
+      "nullifier_secret",
+      "credentialRoot",
+      "nullifier",
+      "authorization"
+    ],
+    "forbidden_substrings": [
+      "credential_secret",
+      "nullifier_secret",
+      "witness"
+    ]
+  },
+
+  "soroban_adjacent": {
+    "operations": [
+      {
+        "name": "register_anonymous_verified",
+        "max_cpu": 3000000,
+        "max_mem": 2000000
+      },
+      {
+        "name": "classify_public_inputs",
+        "max_cpu": 500000,
+        "max_mem": 400000
+      }
+    ]
+  }
+}

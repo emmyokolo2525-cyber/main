@@ -26,6 +26,7 @@
    - [T8 ZK Circuit and Proof Integrity](#t8-zk-circuit-and-proof-integrity)
    - [T9 Admin Key Compromise](#t9-admin-key-compromise)
    - [T10 NeonDB Persistence Integrity](#t10-neondb-persistence-integrity)
+   - [T11 Local Credential Vault Compromise](#t11-local-credential-vault-compromise)
 7. [Mitigations by Component](#7-mitigations-by-component)
 8. [Open Risks and Follow-up Issues](#8-open-risks-and-follow-up-issues)
 9. [Non-Goals](#9-non-goals)
@@ -539,6 +540,29 @@ must be reconciled against on-chain data for any security-sensitive decision.
 
 ---
 
+### T11 Local Credential Vault Compromise
+
+**Description:** An attacker with local access to the user's device attempts to extract credential or nullifier seeds from `localStorage` or memory, potentially decrypting them to spoof the identity.
+
+**Attack vector:** Malicious browser extension, cross-site scripting (XSS), or physical device access.
+
+**Affected assets:** A1, A2.
+
+**Existing mitigations:**
+
+| Mitigation | Location |
+|------------|----------|
+| Seeds are encrypted in `localStorage` via AES-GCM and PBKDF2 | `credentialVault.ts` → `setup` |
+| Vault automatically locks after 15 minutes of inactivity | `credentialVault.ts` → `resetTimeout` |
+| Explicit zeroization when locking or destroying the vault | `credentialVault.ts` → `lock`, `destroy` |
+| Only the encrypted envelope is persisted, not plaintext seeds | `safeStorage.ts` |
+
+**Residual risk:** Memory scraping by highly privileged malware or malicious browser extensions could potentially read the derived `CryptoKey` or decrypted seeds while the vault is temporarily unlocked. XSS could invoke the vault's unlock method if the password was somehow intercepted (e.g. keylogger).
+
+**Severity:** Low (relies on broader device/browser compromise which is out of scope).
+
+---
+
 ## 7. Mitigations by Component
 
 ### 7.1 Soroban Contract (`harpocrates-registry`)
@@ -576,15 +600,19 @@ must be reconciled against on-chain data for any security-sensitive decision.
 | Request IDs for tracing | T6 | `app.py` → `start_request_context` |
 | Steganographic MAGIC header + SHA-256 checksum on payload | T7 | `stego.py` → `_pack_payload`, `_unpack_payload` |
 | Dual-channel embedding (border + LSB) | T7 | `stego.py` → `embed_metadata` |
+| Quarantine directory and signature scanning (magic bytes) | T6 | `quarantine.py` → `isolate_upload`, `SignatureScanner` |
+| Sandboxed ffmpeg execution (resource profiles, timeouts, and sanitized errors) | T6 | `stego.py` → `_start_decode`, `_start_encode`, `_kill_after_timeout` |
+
 
 ### 7.3 React Frontend
 
 | Mitigation | Threats addressed | Code reference |
 |------------|------------------|----------------|
-| Secrets held only in React state; never written to persistent storage | T4, T5 | `seedVault.ts` → `createClearSeeds` |
-| Secrets cleared after proof generation | T4, T5 | `seedVault.ts` → `createClearSeeds` |
+| Seeds held only in React state or encrypted Vault; plaintext never written to persistent storage | T4, T5, T11 | `seedVault.ts`, `credentialVault.ts` |
+| Seeds cleared after proof generation or vault inactivity | T4, T5, T11 | `seedVault.ts`, `credentialVault.ts` |
 | BN254 field modulus reduction on credential/nullifier secrets | T4 | `seedVault.ts` → `fieldSecret` |
 | Browser-side Noir proving — secrets never sent to server in production | T4, T5 | `noirClient.ts` → `generateSilentWitnessProof` |
+| **Worker-isolated proving** — Noir proving runs in a dedicated Web Worker which is explicitly terminated upon success, failure, timeout, or cancellation. This guarantees the browser reclaims the memory hardware-isolate and drops all secrets reliably, rather than depending on GC. | T4, T5 | `proveWorker.ts`, `noirClient.ts` |
 | Network passphrase guard (blocks wrong Stellar network) | T1 | `networkGuard.ts` → `checkNetworkMatch` |
 | Hex normalization and validation on all hash inputs | T1, T8 | `stellarEncoding.ts` → `asHex32`, `asHexBytes` |
 | `CONTRACT_NETWORK_PASSPHRASE` exported constant used by guard | T1 | `harpocratesRegistry.ts` |
@@ -740,6 +768,31 @@ privileged contract event is emitted.
 
 ---
 
+### OR-10 Threshold Seal Policy Governance
+
+**Severity:** Medium  
+**Component:** Soroban contract  
+**Description:** The m-of-n threshold seal policy introduces a governance layer
+where multiple independent institutional issuers must approve a proof before
+finalization. Risks include:
+- A compromised admin key can create a policy with `required_approvals = 1`,
+  bypassing the threshold requirement entirely.
+- Approval TTL expiry windows may allow stale approvals to be counted if not
+  properly validated.
+- Issuer revocation between approval and finalization must be handled atomically
+  to prevent partial-threshold seals.
+**Mitigations implemented:**
+- Policies are admin-only (inherits OR-6 admin trust assumption).
+- Approvals from revoked issuers are excluded from the active count.
+- Expired approvals are excluded by timestamp comparison.
+- Finalization is atomic: threshold check and proof registration occur in a
+  single Soroban transaction.
+- `MAX_SIGNERS = 16` bounds storage consumption per policy.
+- `DEFAULT_APPROVAL_TTL_SECS = 86_400` (1 day) provides a safe default.
+- Backward compatibility: existing single-issuer `register_seal` is preserved.
+
+---
+
 ## 9. Non-Goals
 
 The following are explicitly outside the scope of this threat model:
@@ -787,3 +840,4 @@ add a one-line change summary below:
 | Version | Date | Summary |
 |---------|------|---------|
 | 1.0 | 2026-07-24 | Initial threat model. Covers all four components. Nine open risks identified. |
+| 1.1 | 2026-07-26 | Add OR-10: Threshold seal policy governance (m-of-n Public Seal). |

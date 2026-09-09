@@ -24,22 +24,36 @@ jobs:
     name: Python tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     defaults:
       run:
         shell: bash
         working-directory: backend
     env:
       APP_ENV: testing
-      CORS_ORIGINS: http://localhost
+      CORS_ORIGINS: http://localhost:5173,http://localhost,http://127.0.0.1:5173
       DATABASE_URL: ""
       NOIR_WORKER_ENABLED: "false"
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -56,15 +70,17 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --requirement requirements.txt
+          .venv/bin/python -m pip install pytest
 
       - name: Run backend tests
         run: |
           set -o pipefail
           .venv/bin/python -m unittest discover -v 2>&1 | tee backend-test.log
+          .venv/bin/python -m pytest -v 2>&1 | tee -a backend-test.log
 
       - name: Upload test failure log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-test-failure-${{ github.run_id }}
           path: backend/backend-test.log

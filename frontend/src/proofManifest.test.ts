@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { createProofManifest, serializeManifest, type ProofManifest } from './proofManifest'
+import {
+  createProofManifest,
+  serializeManifest,
+  isLegacyManifest,
+  type ProofManifest,
+} from './proofManifest'
 
 const VALID_INPUT = {
   proofId: 'a'.repeat(64),
@@ -11,16 +16,18 @@ const VALID_INPUT = {
   metadataHash: 'd'.repeat(64),
   sourceHash: 'e'.repeat(64),
   timestamp: '2025-07-24T12:00:00.000Z',
+  verifierScope: '0',
+  epoch: 0,
 }
 
 // ── createProofManifest – positive cases ──────────────────────────────────
 
 describe('createProofManifest', () => {
-  it('returns a manifest with protocol and version fields', () => {
+  it('returns a manifest with protocol and version 2', () => {
     const manifest = createProofManifest(VALID_INPUT)
 
     expect(manifest.protocol).toBe('harpocrates')
-    expect(manifest.version).toBe(1)
+    expect(manifest.version).toBe(2)
   })
 
   it('copies all supplied fields into the manifest', () => {
@@ -35,6 +42,39 @@ describe('createProofManifest', () => {
     expect(manifest.metadataHash).toBe(VALID_INPUT.metadataHash)
     expect(manifest.sourceHash).toBe(VALID_INPUT.sourceHash)
     expect(manifest.timestamp).toBe(VALID_INPUT.timestamp)
+    expect(manifest.verifierScope).toBe('0')
+    expect(manifest.epoch).toBe(0)
+  })
+
+  it('includes scope and epoch fields', () => {
+    const manifest = createProofManifest({
+      ...VALID_INPUT,
+      verifierScope: '42',
+      epoch: 5,
+      scopeName: 'test-verifier',
+    })
+
+    expect(manifest.verifierScope).toBe('42')
+    expect(manifest.epoch).toBe(5)
+    expect(manifest.scopeName).toBe('test-verifier')
+  })
+
+  it('defaults verifierScope to "0" and epoch to 0 when omitted', () => {
+    const manifest = createProofManifest({
+      proofId: 'a'.repeat(64),
+      tier: 'silent',
+      network: 'test',
+      contractId: 'CA',
+      transactionRef: 'b'.repeat(64),
+      videoHash: 'c'.repeat(64),
+      metadataHash: 'd'.repeat(64),
+      sourceHash: 'e'.repeat(64),
+      timestamp: '2025-01-01T00:00:00Z',
+    })
+
+    expect(manifest.verifierScope).toBe('0')
+    expect(manifest.epoch).toBe(0)
+    expect(manifest.scopeName).toBeUndefined()
   })
 
   it('does not expose any secret or private witness fields', () => {
@@ -121,6 +161,7 @@ describe('serializeManifest', () => {
 
     const expectedKeys = [
       'contractId',
+      'epoch',
       'metadataHash',
       'network',
       'proofId',
@@ -129,11 +170,45 @@ describe('serializeManifest', () => {
       'tier',
       'timestamp',
       'transactionRef',
+      'verifierScope',
       'version',
       'videoHash',
     ]
 
     expect(Object.keys(parsed)).toEqual(expectedKeys)
+  })
+
+  it('serializes scopeName when provided', () => {
+    const manifest = createProofManifest({
+      ...VALID_INPUT,
+      scopeName: 'my-verifier',
+    })
+    const json = serializeManifest(manifest)
+    const parsed = JSON.parse(json) as Record<string, unknown>
+
+    expect(parsed.scopeName).toBe('my-verifier')
+  })
+
+  it('omits scopeName when not provided', () => {
+    const manifest = createProofManifest(VALID_INPUT)
+    const json = serializeManifest(manifest)
+    const parsed = JSON.parse(json) as Record<string, unknown>
+
+    expect(parsed.scopeName).toBeUndefined()
+  })
+})
+
+// ── isLegacyManifest ─────────────────────────────────────────────────────
+
+describe('isLegacyManifest', () => {
+  it('returns false for v2 manifests', () => {
+    const manifest = createProofManifest(VALID_INPUT)
+    expect(isLegacyManifest(manifest)).toBe(false)
+  })
+
+  it('returns true for v1 manifests', () => {
+    const v1Manifest = { ...VALID_INPUT, version: 1 } as ProofManifest
+    expect(isLegacyManifest(v1Manifest)).toBe(true)
   })
 })
 
@@ -146,5 +221,34 @@ describe('manifest round-trip', () => {
     const parsed = JSON.parse(json) as ProofManifest
 
     expect(parsed).toEqual(manifest)
+  })
+
+  it('round-trips with scope and epoch', () => {
+    const manifest = createProofManifest({
+      ...VALID_INPUT,
+      verifierScope: '999',
+      epoch: 42,
+      scopeName: 'round-trip-test',
+    })
+    const json = serializeManifest(manifest)
+    const parsed = JSON.parse(json) as ProofManifest
+
+    expect(parsed.verifierScope).toBe('999')
+    expect(parsed.epoch).toBe(42)
+    expect(parsed.scopeName).toBe('round-trip-test')
+  })
+
+  it('supports optional selectiveDisclosure field', () => {
+    const manifest: ProofManifest = {
+      ...createProofManifest(VALID_INPUT),
+      selectiveDisclosure: {
+        schemaHash: 'aa'.repeat(32),
+        publicInputs: 'bb'.repeat(352),
+        predicateCommitment: 'cc'.repeat(32),
+        circuitVersion: 1,
+      },
+    }
+    expect(manifest.selectiveDisclosure?.schemaHash).toBe('aa'.repeat(32))
+    expect(manifest.selectiveDisclosure?.circuitVersion).toBe(1)
   })
 })

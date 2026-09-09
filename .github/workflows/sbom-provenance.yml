@@ -1,0 +1,235 @@
+name: SBOM and Provenance
+
+on:
+  release:
+    types:
+      - published
+      - prereleased
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to generate SBOM for (branch, tag, or SHA)'
+        required: false
+        default: 'main'
+      upload_artifacts:
+        description: 'Upload SBOM and provenance as workflow artifacts'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  packages: write
+
+concurrency:
+  group: sbom-provenance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SBOM_DIR: sbom-artifacts
+  PROVENANCE_DIR: provenance-artifacts
+
+jobs:
+  sbom:
+    name: Generate SBOMs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Install syft for SBOM generation
+        uses: anchore/sbom-action@v0
+        with:
+          syft-version: latest
+
+      - name: Install cosign for signing
+        uses: sigstore/cosign-installer@v3
+
+      - name: Create SBOM output directory
+        run: mkdir -p "$SBOM_DIR" "$PROVENANCE_DIR"
+
+      - name: Generate Python dependency SBOM (CycloneDX)
+        run: |
+          cd backend
+          pip install cyclonedx-bom 2>/dev/null || true
+          python -m cyclonedx_py requirements requirements.txt \
+            --output-format json > "../$SBOM_DIR/backend-sbom.cdx.json" 2>/dev/null || \
+          syft dir:. --output cyclonedx-json > "../$SBOM_DIR/backend-sbom.cdx.json"
+          echo "Backend SBOM generated"
+
+      - name: Generate frontend dependency SBOM
+        run: |
+          cd frontend
+          npx -y @cyclonedx/bom --output "../$SBOM_DIR/frontend-sbom.cdx.json" 2>/dev/null || \
+          syft dir:. --output cyclonedx-json > "../$SBOM_DIR/frontend-sbom.cdx.json"
+          echo "Frontend SBOM generated"
+
+      - name: Generate Rust/Cargo dependency SBOM
+        run: |
+          cd contracts
+          cargo install cargo-cyclonedx 2>/dev/null || true
+          cargo cyclonedx --output "../$SBOM_DIR/contracts-sbom.cdx.json" 2>/dev/null || \
+          syft dir:. --output cyclonedx-json > "../$SBOM_DIR/contracts-sbom.cdx.json"
+          echo "Contracts SBOM generated"
+
+      - name: Generate repository-level SBOM (aggregate)
+        run: |
+          syft dir:. --output cyclonedx-json > "$SBOM_DIR/harpocrates-sbom.cdx.json"
+          echo "Aggregate SBOM generated"
+
+      - name: Sign SBOMs with cosign (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          for sbom in "$SBOM_DIR"/*.json; do
+            echo "Signing: $sbom"
+            cosign sign-blob \
+              --yes \
+              --oidc-issuer "https://token.actions.githubusercontent.com" \
+              --output-signature "$sbom.sig" \
+              --output-certificate "$sbom.cert" \
+              "$sbom"
+          done
+          echo "All SBOMs signed"
+
+      - name: Generate SLSA provenance
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2
+        with:
+          base64-subjects: "${{ steps.sbom-hashes.outputs.hashes }}"
+          provenance-name: "harpocrates.provenance"
+
+      - name: Compute hashes for provenance
+        id: sbom-hashes
+        run: |
+          HASHES=""
+          for f in "$SBOM_DIR"/*.json; do
+            HASH="$HASHES$(sha256sum "$f" | awk '{print $1}') $(basename "$f")\n"
+          done
+          echo "hashes=$HASHES" >> "$GITHUB_OUTPUT"
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-artifacts-${{ github.run_id }}
+          path: ${{ env.SBOM_DIR }}/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Attach SBOMs to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          for sbom in "$SBOM_DIR"/*.json; do
+            gh release upload "$TAG" "$sbom" "$sbom.sig" "$sbom.cert" --clobber
+          done
+          echo "SBOMs attached to release $TAG"
+
+  provenance:
+    name: Generate Provenance Attestations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: sbom
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.ref || github.ref }}
+
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: sbom-artifacts-${{ github.run_id }}
+          path: ${{ env.SBOM_DIR }}
+
+      - name: Generate Docker provenance (backend)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: backend/Dockerfile
+          subject-name: harpocrates-backend
+
+      - name: Generate Docker provenance (frontend)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: frontend/Dockerfile
+          subject-name: harpocrates-frontend
+
+      - name: Upload provenance artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: provenance-artifacts-${{ github.run_id }}
+          path: ${{ env.PROVENANCE_DIR }}/
+          retention-days: 90
+
+      - name: Attach provenance to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -d "$PROVENANCE_DIR" ]; then
+            gh release upload "$TAG" "$PROVENANCE_DIR"/* --clobber
+          fi
+          echo "Provenance attached to release $TAG"
+
+  verify:
+    name: Verify SBOM Signatures
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: sbom
+    if: always()
+
+    steps:
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: sbom-artifacts-${{ github.run_id }}
+          path: ${{ env.SBOM_DIR }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify SBOM signatures
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          for sig in "$SBOM_DIR"/*.json.sig; do
+            cert="${sig%.sig}.cert"
+            sbom="${sig%.sig}"
+            if [ -f "$cert" ]; then
+              echo "Verifying: $sbom"
+              cosign verify-blob \
+                --certificate "$cert" \
+                --signature "$sig" \
+                --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+                --certificate-identity-regexp ".*" \
+                "$sbom" && echo "✓ $sbom signature verified" || echo "✗ $sbom signature verification failed"
+            fi
+          done

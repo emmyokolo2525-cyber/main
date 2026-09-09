@@ -1,9 +1,18 @@
-# Private inputs. These are known only to the prover.
+# Private inputs — known only to the prover, never included in the proof.
 credential_secret = "12345"
 nullifier_secret = "67890"
 
-# Public inputs. These are included in the proof statement.
+# Public inputs — included in the proof statement and verified on-chain.
 video_hash_hi = "1"
 video_hash_lo = "2"
 credential_root = "0"
 nullifier = "0"
+verifier_scope = "0"
+epoch = "0"
+
+# Domain tag — versioned binding to (protocol, circuit_version, network).
+# Value: pedersen_hash([DOMAIN_PROTOCOL_FIELD, DOMAIN_VERSION_FIELD, DOMAIN_NETWORK_FIELD])
+# Computed by the silent_witness_helper circuit; do not set manually.
+# A mismatch here will cause the in-circuit assert "domain tag mismatch" to fire.
+domain_tag = "0"
+

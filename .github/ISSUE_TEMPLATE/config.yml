@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security Vulnerability Reporting
+    url: https://github.com/harpocrates-stellar/main/security/policy
+    about: Please DO NOT report security vulnerabilities through public issues. Follow our security policy for private reporting.
+  - name: Product & Architecture Specification
+    url: https://github.com/harpocrates-stellar/main/blob/main/project.md
+    about: Read the Harpocrates product spec and architecture before proposing major structural changes.
+  - name: Stellar Developer Community
+    url: https://discord.gg/stellardev
+    about: Ask questions and discuss Harpocrates development with the Stellar community.

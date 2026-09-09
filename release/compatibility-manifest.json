@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "release_id": "harpocrates-1.0.0",
+  "protocol": {
+    "name": "harpocrates",
+    "version": 1,
+    "crypto_domain": "harpocrates:silent-witness:v1"
+  },
+  "network": "testnet",
+  "rollout": {
+    "state": "candidate",
+    "previous_release": null,
+    "max_stage_percent": 0,
+    "approval": "local-development-only"
+  },
+  "components": {
+    "frontend": { "version": "1.0.0", "api_version": 1, "contract_interface_version": 1 },
+    "backend": { "version": "1.0.0", "api_version": 1 },
+    "circuit": { "version": "1.0.0", "api_version": 1, "proof_system": "ultrahonk-v1" },
+    "verifier": { "version": "1.0.0", "api_version": 1, "proof_system": "ultrahonk-v1" },
+    "registry": { "version": "1.0.0", "api_version": 1, "contract_interface_version": 1 }
+  },
+  "compatibility": {
+    "metadata_version": 1,
+    "proof_public_inputs_version": 1,
+    "migration": null
+  },
+  "artifacts": [
+    { "component": "frontend", "path": "frontend/public/noir/silent_witness.json", "sha256": "26c306df107269cce78e21bdedafe0444a54691131e825d44ce350dcf8b97e79" },
+    { "component": "frontend", "path": "frontend/public/noir/silent_witness_helper.json", "sha256": "95a629e7a094d8ddfe6bc92d2455f500eb9ce1f4dec37d51b9c5ed3b4a55ddb4" },
+    { "component": "frontend", "path": "frontend/src/harpocratesRegistry.ts", "sha256": "d622b0a2f779b0dd218e8083b553ecae5ee58a2c0df4c4b95807260f38f5cdf5" },
+    { "component": "frontend", "path": "frontend/src/releaseCompatibility.ts", "sha256": "41b1b2f29348136d9b46a2c5698a44e741f774cf07d187aebd4eefee30fc5a15" },
+    { "component": "backend", "path": "backend/app.py", "sha256": "4be8b5b8ca3c4c72a9168c85752bc21a725711f7fde66030ad8c6dcb7604085c" },
+    { "component": "backend", "path": "backend/config.py", "sha256": "53005d3550edcd629d302f4dec2d529b35bae83cc073e2c01a39baad0d9789e2" },
+    { "component": "backend", "path": "backend/metrics.py", "sha256": "0850690276fe08f3f4040edf5cdbd5fce8024fd6e00f50c9ebdf5870a994452a" },
+    { "component": "circuit", "path": "zk/noir/silent_witness/Nargo.toml", "sha256": "5409afc3bf8006190be0dc19392c3e28a5c36143791c9fef998e7da6227ce222" },
+    { "component": "circuit", "path": "zk/noir/silent_witness/src/main.nr", "sha256": "39e12f6eda25423cb3cc51ec9aa735aee8cf63c677cfbe1381fcca91c27642e5" },
+    { "component": "verifier", "path": "release/verifier-binding.json", "sha256": "e2a5d920e1ffa1ffa001acd4ccd3e3ef3a6a577452cc29b3f6b3c5897f922890" },
+    { "component": "registry", "path": "contracts/contracts/harpocrates-registry/src/lib.rs", "sha256": "abf850cce28e23ed7fd256edf2000d876eeda9dc6a03ec536e0400e2fd3b99a3" },
+    { "component": "registry", "path": "contracts/contracts/harpocrates-registry/Cargo.toml", "sha256": "2094c0519287f8cc93af29a392bbe509024cf7beb3022b9d6c347e7f48b4f065" }
+  ]
+}

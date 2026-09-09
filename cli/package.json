@@ -1,0 +1,36 @@
+{
+  "name": "@harpocrates/cli",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "harpocrates": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./hashing": "./dist/hashing.js",
+    "./metadata": "./dist/metadata.js",
+    "./manifest": "./dist/manifest.js",
+    "./stellar-lookup": "./dist/stellar-lookup.js",
+    "./receipt": "./dist/receipt.js",
+    "./normalize": "./dist/normalize.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^15.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "eslint": "^10.3.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vitest": "^3.2.7"
+  }
+}

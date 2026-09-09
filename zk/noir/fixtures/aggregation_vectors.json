@@ -1,0 +1,96 @@
+{
+  "protocol": "harpocrates",
+  "version": 1,
+  "type": "aggregation_fixtures",
+  "description": "Deterministic test vectors for silent_witness_aggregator circuit. All values are synthetic and for testing only.",
+  "maxBatchSize": 8,
+  "fixtures": [
+    {
+      "name": "full_batch_8",
+      "description": "Full 8-element batch with same credential (12345) across different video hashes",
+      "credentialSecret": "12345",
+      "nullifierSecret": "67890",
+      "credentialRootHex": "1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+      "elements": [
+        {
+          "index": 0,
+          "videoHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "videoHashHi": "22685491128062564230891640495451214097",
+          "videoHashLo": "45370982256125128461783280990902428194",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "266fe0dec6dc9e1a4a7b0b3c71876074eaca128b05b371cf6677d2e62f795fe6"
+        },
+        {
+          "index": 1,
+          "videoHash": "1111111111111111111111111111111111111111111111111111111111111111",
+          "videoHashHi": "11111111111111111111111111111111111111",
+          "videoHashLo": "22222222222222222222222222222222222222",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "1f531179c0c1df5faeb5de4f80ec53bc06b650e4932442bc457d740a5ec8bfea"
+        },
+        {
+          "index": 2,
+          "videoHash": "3333333333333333333333333333333333333333333333333333333333333333",
+          "videoHashHi": "33333333333333333333333333333333333333",
+          "videoHashLo": "44444444444444444444444444444444444444",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "138e7137a61fc9b40bbc26b0cf2f7bd9ba6ecbc6254cec8ab33352f435969ebd"
+        },
+        {
+          "index": 3,
+          "videoHash": "5555555555555555555555555555555555555555555555555555555555555555",
+          "videoHashHi": "55555555555555555555555555555555555555",
+          "videoHashLo": "66666666666666666666666666666666666666",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "159b7676433a46fff9e7c8081786adfef4ce6d8f73a78b2cf9a1ce205accfa2a"
+        },
+        {
+          "index": 4,
+          "videoHash": "7777777777777777777777777777777777777777777777777777777777777777",
+          "videoHashHi": "77777777777777777777777777777777777777",
+          "videoHashLo": "88888888888888888888888888888888888888",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "0927a0ad40034087bb36fc4736064336cc60b762e53a4a3f9c31a2ecff885e11"
+        },
+        {
+          "index": 5,
+          "videoHash": "9999999999999999999999999999999999999999999999999999999999999999",
+          "videoHashHi": "99999999999999999999999999999999999999",
+          "videoHashLo": "10101010101010101010101010101010101010",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "24494d98d87f3111e9ba8dee3a0431d6b8d82f37ab57e0a3e6441352aeb1e3aa"
+        },
+        {
+          "index": 6,
+          "videoHash": "1212121212121212121212121212121212121212121212121212121212121212",
+          "videoHashHi": "12121212121212121212121212121212121212",
+          "videoHashLo": "13131313131313131313131313131313131313",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "0d19a32bad6e4634841170f12ae56e215134954ae8170004d8ab62b80e243dd0"
+        },
+        {
+          "index": 7,
+          "videoHash": "1414141414141414141414141414141414141414141414141414141414141414",
+          "videoHashHi": "14141414141414141414141414141414141414",
+          "videoHashLo": "15151515151515151515151515151515151515",
+          "credentialRoot": "0x1a65fb219ffd58992a8c16d3038ef77e4696a8e43e1fb2debdb03b5d9b0ee8a9",
+          "nullifierHex": "1625a74384ba10f59f87f39977a5dc45947b705f98b2d46c61918504c77d3dcd"
+        }
+      ]
+    },
+    {
+      "name": "zero_credential_secret",
+      "description": "Edge case: credential_secret = 0",
+      "credentialSecret": "0",
+      "nullifierSecret": "67890",
+      "elements": [
+        {
+          "index": 0,
+          "videoHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "videoHashHi": "22685491128062564230891640495451214097",
+          "videoHashLo": "45370982256125128461783280990902428194"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[package]
+name = "selective_disclosure"
+type = "bin"
+authors = ["Harpocrates"]
+compiler_version = ">=1.0.0"
+
+[dependencies]

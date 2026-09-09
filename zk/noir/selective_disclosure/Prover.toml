@@ -1,0 +1,25 @@
+schema_hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+issuer_namespace = "0x1111111111111111111111111111111111111111111111111111111111111111"
+schema_version = "1"
+credential_root = "0"
+nullifier = "0"
+video_hash_hi = "1234"
+video_hash_lo = "5678"
+verifier_digest = "42"
+circuit_version = "1"
+evidence_digest = "9999"
+predicate_commitment = "0"
+num_attributes = "2"
+attr_values = ["18", "12345678", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+attr_blindings = ["111111", "222222", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+num_predicates = "1"
+predicates = [
+  { predicate_type = "0", attr_index = "0", public_value = "18", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+  { predicate_type = "0", attr_index = "0", public_value = "0", set_values = ["0", "0", "0", "0", "0", "0", "0", "0"], set_len = "0", lower_bound = "0", upper_bound = "0" },
+]

@@ -1,0 +1,71 @@
+name: Bug Report
+description: Create a report to help us reproduce and fix a bug
+title: "[Bug]: "
+labels: ["type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please fill out the sections below to help us investigate and resolve it efficiently.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which component of Harpocrates does this issue affect?
+      options:
+        - "Frontend (React / Evidence Studio & Portal)"
+        - "Backend (Flask / Metadata Service)"
+        - "Contracts (Soroban / Registry & Verifier)"
+        - "ZK / Circuits (Noir / UltraHonk)"
+        - "DevX / CI / Documentation"
+        - "Other / Unknown"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the problem clearly...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: What steps are required to reproduce this bug?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+      placeholder: Describe what should have happened...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment & System Details
+      description: Please provide your operating system, software versions, and browser if applicable.
+      placeholder: |
+        - OS: [e.g. Ubuntu 22.04, macOS Sonoma, Windows 11]
+        - Node.js version: [e.g. 20.11.0]
+        - Python version: [e.g. 3.12.0]
+        - Stellar CLI / Soroban version: [e.g. 21.0.0]
+        - Browser: [e.g. Chrome 120, Firefox 121]
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, stack traces, screenshots, or log outputs here.
+    validations:
+      required: false

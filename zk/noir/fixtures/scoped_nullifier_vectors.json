@@ -1,0 +1,239 @@
+{
+  "_description": "Shared conformance vectors for the scoped nullifier v1 Noir circuit and the HarpocratesRegistry Soroban contract. Both the Noir tests (nargo test) and the Rust contract tests use these same fixtures to prevent drift.",
+  "_version": "2.0.0",
+  "_domain_separator": "HARPOCRATES_SCOPED_NULLIFIER_V1",
+  "_domain_separator_bytes": "00484152504f4352415445535f53434f5045445f4e554c4c49464945525f5631",
+  "_public_input_layout_v2": "6 x BN254 field elements (192 bytes): [video_hash_hi, video_hash_lo, credential_root, nullifier, verifier_scope, epoch]",
+  "_public_input_layout_v1": "4 x BN254 field elements (128 bytes): [video_hash_hi, video_hash_lo, credential_root, nullifier]",
+
+  "witness": {
+    "credential_secret": 12345,
+    "nullifier_secret": 67890,
+    "video_hash_hi": "22685491128062564230891640495451214097",
+    "video_hash_lo": "45370982256125128461783280990902428194",
+    "credential_root": "computed by helper circuit — pedersen_hash([credential_secret])",
+    "nullifier": "computed by helper circuit — pedersen_hash([credential_secret, nullifier_secret, video_hash_hi, video_hash_lo, scope_hash])"
+  },
+
+  "scope_derivation": {
+    "description": "Scope field elements are derived from canonical scope strings using SHA-256 mod BN254 field modulus.",
+    "canonical_format": "v:{verifierAddress}:p:{purpose}",
+    "global_scope": "0 (field element representing the unscoped/global context)",
+    "example_scope_strings": [
+      { "scope_string": "v:GCQ234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ12:p:default", "description": "Default purpose for a verifier" },
+      { "scope_string": "v:GCQ234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ12:p:attestation", "description": "Attestation purpose" },
+      { "scope_string": "v:GCQ234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ12:p:membership", "description": "Membership verification purpose" }
+    ]
+  },
+
+  "positive_cases": [
+    {
+      "name": "global_scope_epoch_0",
+      "description": "Global scope (verifier_scope=0) with epoch=0. The default configuration.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "pass"
+    },
+    {
+      "name": "explicit_scope_epoch_1",
+      "description": "Explicit verifier scope with epoch 1. Demonstrates scoped nullifier derivation.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 1111,
+      "epoch": 1,
+      "expected": "pass"
+    },
+    {
+      "name": "zero_credential_secret",
+      "description": "Zero credential secret is a valid BN254 field element. Edge case.",
+      "credential_secret": 0,
+      "nullifier_secret": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "pass"
+    },
+    {
+      "name": "max_field_credential_secret",
+      "description": "Maximum BN254 field value (prime - 1) as credential secret. Edge case.",
+      "credential_secret": "2188824287183927522224640574525727508854836440034343698204186575808495616",
+      "nullifier_secret": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "pass"
+    },
+    {
+      "name": "zero_video_hash",
+      "description": "All-zero video hash (blank-frame video). Edge case with correct secrets.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "video_hash_hi": 0,
+      "video_hash_lo": 0,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "pass"
+    },
+    {
+      "name": "cross_scope_different_nullifiers",
+      "description": "Same credential and video, different scopes produce different nullifiers. Demonstrates scope binding.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope_a": 0,
+      "verifier_scope_b": 1111,
+      "epoch": 0,
+      "expected": "pass — both scopes produce distinct nullifiers"
+    },
+    {
+      "name": "epoch_rotation_valid",
+      "description": "After epoch rotation, a new proof with the updated epoch is accepted.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 42,
+      "epoch_old": 0,
+      "epoch_new": 1,
+      "expected": "pass — epoch 1 proof accepted after rotation"
+    }
+  ],
+
+  "negative_cases": [
+    {
+      "name": "wrong_credential_secret",
+      "description": "Wrong credential secret in the witness — credential root assertion fails.",
+      "credential_secret_wrong": 99999,
+      "credential_secret_correct": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "fail — credential root mismatch"
+    },
+    {
+      "name": "wrong_nullifier_secret",
+      "description": "Wrong nullifier secret in the witness — nullifier assertion fails.",
+      "credential_secret": 12345,
+      "nullifier_secret_wrong": 11111,
+      "nullifier_secret_correct": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "wrong_video_hash_hi",
+      "description": "Wrong video_hash_hi in public inputs — nullifier assertion fails.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "video_hash_hi_wrong": "999999999999999999999999999999999999",
+      "video_hash_lo_correct": "45370982256125128461783280990902428194",
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "wrong_video_hash_lo",
+      "description": "Wrong video_hash_lo in public inputs — nullifier assertion fails.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "video_hash_hi_correct": "22685491128062564230891640495451214097",
+      "video_hash_lo_wrong": "222222222222222222222222222222222222",
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "nullifier_from_different_scope",
+      "description": "Nullifier computed for scope=999 must not satisfy scope=0. Proves scope binding.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope_proof": 0,
+      "verifier_scope_nullifier": 999,
+      "epoch": 0,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "nullifier_from_different_epoch",
+      "description": "Nullifier computed for epoch=2 must not satisfy epoch=1. Proves epoch binding.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 42,
+      "epoch_proof": 1,
+      "epoch_nullifier": 2,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "nullifier_from_different_video",
+      "description": "Nullifier computed for a different video must not satisfy the current video hash.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "video_hash_hi_different": "111111111111111111111111111111111111",
+      "video_hash_lo_different": "222222222222222222222222222222222222",
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "tampered_scope_public_input",
+      "description": "Correct nullifier for scope=0, but scope public input is tampered to 1.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope_proof": 0,
+      "verifier_scope_public_input": 1,
+      "epoch": 0,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "tampered_epoch_public_input",
+      "description": "Correct nullifier for epoch=1, but epoch public input is tampered to 0.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 42,
+      "epoch_proof": 1,
+      "epoch_public_input": 0,
+      "expected": "fail — nullifier mismatch"
+    },
+    {
+      "name": "swapped_credential_root_and_nullifier",
+      "description": "Credential root and nullifier positions are swapped in public inputs.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 0,
+      "epoch": 0,
+      "expected": "fail — credential root mismatch"
+    },
+    {
+      "name": "stale_epoch_rejected",
+      "description": "Proof with epoch 0 is rejected when the current scope epoch is 1.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 42,
+      "epoch_proof": 0,
+      "epoch_current": 1,
+      "expected": "fail — StaleEpoch"
+    },
+    {
+      "name": "future_epoch_rejected",
+      "description": "Proof with epoch 2 is rejected when the current scope epoch is 1.",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "verifier_scope": 42,
+      "epoch_proof": 2,
+      "epoch_current": 1,
+      "expected": "fail — StaleEpoch"
+    }
+  ],
+
+  "v1_v2_compatibility": {
+    "description": "v1 (128-byte) and v2 (192-byte) proofs use different derivation formulas and produce different nullifiers for the same credential and video.",
+    "v1_layout": "4 x BN254 field elements (128 bytes)",
+    "v2_layout": "6 x BN254 field elements (192 bytes)",
+    "nullifier_independence": "v1 and v2 nullifiers for the same credential/video are different values because the derivation formulas differ (v1 does not include scope_hash).",
+    "test_case": {
+      "name": "v1_v2_nullifiers_are_different",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "video_hash": "same for both v1 and v2",
+      "v1_nullifier": "different from v2 nullifier",
+      "v2_nullifier": "different from v1 nullifier",
+      "expected": "both v1 and v2 proofs succeed with distinct nullifiers"
+    }
+  }
+}

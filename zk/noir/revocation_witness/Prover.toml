@@ -1,0 +1,47 @@
+# Revocation Witness — Prover.toml
+#
+# This file contains placeholder values for the private inputs.
+# Run `nargo test --show-output` in the revocation_witness_helper crate
+# to compute the actual Pedersen hash values, then replace the placeholders.
+#
+# Public inputs (submitted with the proof):
+#   [0] revocation_root  — computed from the 8 leaves below
+#   [1] nullifier        — pedersen_hash([credential_secret, nullifier_secret])
+#   [2] domain_separator — "HARPOCRATES_REVOCATION_V1" as a field element
+#   [3] credential_root  — pedersen_hash([credential_secret])
+
+credential_secret = 12345
+nullifier_secret = 67890
+
+# Test tree leaves (depth 3, 8 leaves)
+# Leaf 0 is the sentinel (always 0).
+# Leaves 1-7 are pedersen_hash() of revoked credential secrets.
+# These must be replaced with actual Pedersen hash outputs for production use.
+leaf_0 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_1 = pedersen_hash([33333])
+leaf_1 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_2 = pedersen_hash([44444])
+leaf_2 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_3 = pedersen_hash([55555])
+leaf_3 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_4 = pedersen_hash([66666])
+leaf_4 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_5 = pedersen_hash([77777])
+leaf_5 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_6 = pedersen_hash([88888])
+leaf_6 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# leaf_7 = pedersen_hash([99999])
+leaf_7 = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# Public inputs (computed by the helper circuit)
+revocation_root = "0x0000000000000000000000000000000000000000000000000000000000000000"
+nullifier = "0x0000000000000000000000000000000000000000000000000000000000000000"
+domain_separator = "0x0000000000000000000000000000000000000000000000000000000000000000"
+credential_root = "0x0000000000000000000000000000000000000000000000000000000000000000"

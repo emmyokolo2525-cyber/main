@@ -1,0 +1,43 @@
+name: Compatibility release gate
+
+on:
+  pull_request:
+    paths:
+      - 'release/**'
+      - 'devx/**'
+      - 'frontend/**'
+      - 'backend/**'
+      - 'contracts/**'
+      - 'zk/**'
+      - '.github/workflows/release-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'release/**'
+      - 'devx/**'
+      - 'frontend/**'
+      - 'backend/**'
+      - 'contracts/**'
+      - 'zk/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    name: Verify atomic release bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify manifest and digests
+        run: python3 devx/release_guard.py
+      - name: Exercise negative release-gate paths
+        run: python3 -m unittest discover -s devx -p 'test_*.py' -v

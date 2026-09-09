@@ -1,0 +1,168 @@
+{
+  "_description": "Shared conformance vectors for the revocation_witness Noir circuit and the HarpocratesRegistry Soroban contract (#98). Both the Noir tests (nargo test) and the Rust contract tests use these same fixtures to prevent drift.",
+  "_version": "1.0.0",
+  "_domain_separator": "HARPOCRATES_REVOCATION_V1",
+  "_domain_separator_bytes": "484152504f4352415445535f5245564f434154494f4e5f56310000000000000000",
+
+  "witness": {
+    "credential_secret": 12345,
+    "nullifier_secret": 67890,
+    "credential_root": "computed by helper circuit — pedersen_hash([12345])",
+    "nullifier": "computed by helper circuit — pedersen_hash([12345, 67890])"
+  },
+
+  "revocation_tree": {
+    "depth": 3,
+    "leaf_count": 8,
+    "hash": "pedersen",
+    "leaves": [
+      { "index": 0, "value": 0, "description": "sentinel — always zero" },
+      { "index": 1, "value": "pedersen_hash([33333])", "description": "revoked credential #1" },
+      { "index": 2, "value": "pedersen_hash([44444])", "description": "revoked credential #2" },
+      { "index": 3, "value": "pedersen_hash([55555])", "description": "revoked credential #3" },
+      { "index": 4, "value": "pedersen_hash([66666])", "description": "revoked credential #4" },
+      { "index": 5, "value": "pedersen_hash([77777])", "description": "revoked credential #5" },
+      { "index": 6, "value": "pedersen_hash([88888])", "description": "revoked credential #6" },
+      { "index": 7, "value": "pedersen_hash([99999])", "description": "revoked credential #7" }
+    ],
+    "internal_nodes": {
+      "node_01": "pedersen_hash([leaf_0, leaf_1])",
+      "node_23": "pedersen_hash([leaf_2, leaf_3])",
+      "node_45": "pedersen_hash([leaf_4, leaf_5])",
+      "node_67": "pedersen_hash([leaf_6, leaf_7])",
+      "node_0123": "pedersen_hash([node_01, node_23])",
+      "node_4567": "pedersen_hash([node_45, node_67])"
+    },
+    "root": "pedersen_hash([node_0123, node_4567])"
+  },
+
+  "positive_cases": [
+    {
+      "name": "valid_non_revocation_witness",
+      "description": "Credential 12345 is NOT in the revocation tree — proof should succeed",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "expected": "pass"
+    },
+    {
+      "name": "zero_credential_secret_non_revocation",
+      "description": "Zero credential secret is not revoked",
+      "credential_secret": 0,
+      "nullifier_secret": 67890,
+      "expected": "pass"
+    },
+    {
+      "name": "max_field_non_revocation",
+      "description": "Maximum BN254 field value is not revoked",
+      "credential_secret": "BN254_PRIME_MINUS_ONE",
+      "nullifier_secret": 67890,
+      "expected": "pass"
+    },
+    {
+      "name": "empty_revocation_tree",
+      "description": "Tree with all zero leaves — any credential passes",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "all_leaves_zero": true,
+      "expected": "pass"
+    },
+    {
+      "name": "full_tree_non_member",
+      "description": "Tree has 8 unique revoked leaves — a non-member still passes",
+      "credential_secret": 12345,
+      "nullifier_secret": 67890,
+      "leaves": [11111, 22222, 33333, 44444, 55555, 66666, 77777, 88888],
+      "expected": "pass"
+    }
+  ],
+
+  "negative_cases": [
+    {
+      "name": "wrong_credential_secret",
+      "description": "Private secret doesn't match the public credential_root",
+      "expected_error": "credential root mismatch"
+    },
+    {
+      "name": "wrong_nullifier_secret",
+      "description": "Private nullifier_secret doesn't match the public nullifier",
+      "expected_error": "nullifier mismatch"
+    },
+    {
+      "name": "revoked_credential",
+      "description": "Credential 33333 IS in the revocation tree (leaf 1)",
+      "credential_secret": 33333,
+      "expected_error": "credential is in revocation set"
+    },
+    {
+      "name": "credential_at_leaf_zero",
+      "description": "Credential IS at leaf position 0",
+      "credential_secret": 0,
+      "credential_root_equals_leaf_0": true,
+      "expected_error": "credential is in revocation set"
+    },
+    {
+      "name": "credential_at_leaf_seven",
+      "description": "Credential IS at the last leaf position",
+      "credential_secret": 99999,
+      "expected_error": "credential is in revocation set"
+    },
+    {
+      "name": "tampered_revocation_root",
+      "description": "Public revocation_root is zero instead of the real tree root",
+      "expected_error": "revocation root mismatch"
+    },
+    {
+      "name": "tampered_leaves",
+      "description": "A leaf is altered so the computed tree root changes",
+      "expected_error": "revocation root mismatch"
+    }
+  ],
+
+  "contract_boundary_cases": [
+    {
+      "name": "check_non_revocation_succeeds",
+      "description": "Valid proof with correct root, domain, credential, and fresh nullifier",
+      "expected": "pass"
+    },
+    {
+      "name": "rejects_wrong_root",
+      "description": "Proof's revocation_root differs from stored on-chain root",
+      "expected_error": "Error(Contract, #10)"
+    },
+    {
+      "name": "rejects_wrong_domain",
+      "description": "Domain separator doesn't match HARPOCRATES_REVOCATION_V1",
+      "expected_error": "Error(Contract, #10)"
+    },
+    {
+      "name": "rejects_unknown_credential",
+      "description": "Credential root not registered on-chain",
+      "expected_error": "Error(Contract, #11)"
+    },
+    {
+      "name": "rejects_revoked_credential",
+      "description": "Credential root has been revoked via revoke_credential_root",
+      "expected_error": "Error(Contract, #12)"
+    },
+    {
+      "name": "rejects_reused_nullifier",
+      "description": "Same nullifier submitted twice — replay attack prevented",
+      "expected_error": "Error(Contract, #6)"
+    },
+    {
+      "name": "rejects_no_verifier",
+      "description": "External verifier contract not configured",
+      "expected_error": "Error(Contract, #9)"
+    },
+    {
+      "name": "rejects_no_revocation_root",
+      "description": "No revocation root set on-chain",
+      "expected_error": "Error(Contract, #2)"
+    },
+    {
+      "name": "rejects_wrong_input_length",
+      "description": "Public inputs not 128 bytes",
+      "expected_error": "Error(Contract, #10)"
+    }
+  ]
+}

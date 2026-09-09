@@ -1,0 +1,26 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+build/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# Test / coverage
+coverage/
+*.test.ts
+*.test.tsx
+src/test/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

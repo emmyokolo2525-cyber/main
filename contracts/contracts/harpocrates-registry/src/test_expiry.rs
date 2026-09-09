@@ -1,18 +1,18 @@
-/// Proof-expiration policy tests (#44)
-///
-/// Policy rules under test:
-///
-/// 1. `expires_at == 0` → proof never expires (default, backward-compat).
-/// 2. `expires_at > 0 && now <= expires_at` → `get_proof_status` returns `Valid`.
-/// 3. `expires_at > 0 && now  > expires_at` → `get_proof_status` returns `Expired`.
-/// 4. `status == REVOKED`                   → `get_proof_status` returns `Revoked`
-///    regardless of `expires_at`.
-/// 5. Non-existent proof_id                 → `get_proof_status` returns `NotFound`.
-/// 6. `set_proof_ttl` only affects *new* registrations; existing records are
-///    unaffected.
-/// 7. A TTL of `u64::MAX` is handled by saturating addition (no overflow).
-///
-/// The test harness controls ledger time via `env.ledger().set_timestamp()`.
+//! Proof-expiration policy tests (#44)
+//!
+//! Policy rules under test:
+//!
+//! 1. `expires_at == 0` → proof never expires (default, backward-compat).
+//! 2. `expires_at > 0 && now <= expires_at` → `get_proof_status` returns `Valid`.
+//! 3. `expires_at > 0 && now  > expires_at` → `get_proof_status` returns `Expired`.
+//! 4. `status == REVOKED`                   → `get_proof_status` returns `Revoked`
+//!    regardless of `expires_at`.
+//! 5. Non-existent proof_id                 → `get_proof_status` returns `NotFound`.
+//! 6. `set_proof_ttl` only affects *new* registrations; existing records are
+//!    unaffected.
+//! 7. A TTL of `u64::MAX` is handled by saturating addition (no overflow).
+//!
+//! The test harness controls ledger time via `env.ledger().set_timestamp()`.
 #[cfg(test)]
 use super::*;
 #[cfg(test)]
@@ -55,7 +55,10 @@ fn expiry_default_ttl_zero_never_expires() {
     let proof_id = b32(&env, 0x01);
 
     let rec = client.register_source(&source, &b32(&env, 0x02), &b32(&env, 0x03), &proof_id);
-    assert_eq!(rec.expires_at, 0, "default TTL must produce expires_at == 0");
+    assert_eq!(
+        rec.expires_at, 0,
+        "default TTL must produce expires_at == 0"
+    );
 
     // Advance ledger far into the future
     env.ledger().set_timestamp(u64::MAX / 2);
@@ -106,12 +109,7 @@ fn expiry_set_ttl_does_not_affect_existing_proofs() {
 
     // Register without TTL
     let proof_id = b32(&env, 0x20);
-    let rec_before = client.register_source(
-        &source,
-        &b32(&env, 0x21),
-        &b32(&env, 0x22),
-        &proof_id,
-    );
+    let rec_before = client.register_source(&source, &b32(&env, 0x21), &b32(&env, 0x22), &proof_id);
     assert_eq!(rec_before.expires_at, 0);
 
     // Now set a TTL
@@ -119,7 +117,10 @@ fn expiry_set_ttl_does_not_affect_existing_proofs() {
 
     // The existing record is still unchanged
     let stored = client.get_proof(&proof_id).unwrap();
-    assert_eq!(stored.expires_at, 0, "existing record must not be affected by TTL change");
+    assert_eq!(
+        stored.expires_at, 0,
+        "existing record must not be affected by TTL change"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +285,8 @@ struct MockVerifier3;
 #[contractimpl]
 impl MockVerifier3 {
     pub fn verify_proof(_env: Env, public_inputs: Bytes, proof: Bytes) {
-        if public_inputs.len() != 128 || proof.is_empty() {
+        let len = public_inputs.len();
+        if (len != 128 && len != 192) || proof.is_empty() {
             panic!("invalid proof");
         }
     }
@@ -298,12 +300,45 @@ fn make_pi(env: &Env, vh: &BytesN<32>, cr: &BytesN<32>, nu: &BytesN<32>) -> Byte
     cr.copy_into_slice(&mut c);
     let mut n = [0u8; 32];
     nu.copy_into_slice(&mut n);
-    let mut buf = [0u8; 128];
+    // Compute the expected domain tag (SHA-256 of the 3 domain field constants concatenated)
+    let domain_tag = expected_domain_tag_for_test(env);
+    let mut dt = [0u8; 32];
+    domain_tag.copy_into_slice(&mut dt);
+    // 5 public inputs × 32 bytes = 160 bytes
+    let mut buf = [0u8; 160];
     buf[16..32].copy_from_slice(&v[..16]);
     buf[48..64].copy_from_slice(&v[16..]);
     buf[64..96].copy_from_slice(&c);
     buf[96..128].copy_from_slice(&n);
+    buf[128..160].copy_from_slice(&dt);
     Bytes::from_array(env, &buf)
+}
+
+#[cfg(test)]
+fn expected_domain_tag_for_test(env: &Env) -> BytesN<32> {
+    let protocol: [u8; 32] = [
+        0x26, 0x1e, 0x9f, 0x6e, 0x39, 0xe3, 0xc1, 0xae,
+        0x6a, 0xca, 0x9f, 0x29, 0xe8, 0x4c, 0x10, 0xd5,
+        0x9c, 0x82, 0xd5, 0xf4, 0xb4, 0x0c, 0x21, 0xc1,
+        0xb7, 0xe3, 0xc0, 0x1a, 0xd5, 0x71, 0xc2, 0x1,
+    ];
+    let version: [u8; 32] = [
+        0x0c, 0x89, 0xef, 0xf4, 0xec, 0x8e, 0x39, 0xa0,
+        0x1e, 0x9f, 0x19, 0x54, 0x7a, 0x0c, 0xc9, 0xdd,
+        0x7f, 0xd2, 0xa9, 0x7d, 0x79, 0xba, 0x4d, 0x94,
+        0xfd, 0x32, 0xe9, 0x7a, 0x1f, 0x5a, 0xc6, 0x23,
+    ];
+    let network: [u8; 32] = [
+        0x2a, 0x2c, 0x3f, 0x48, 0xce, 0x2e, 0x3c, 0x2f,
+        0x1e, 0x6c, 0x89, 0xb1, 0x8d, 0x64, 0xb5, 0xf5,
+        0xc1, 0xf8, 0x8a, 0x59, 0xa0, 0xd9, 0xbc, 0x82,
+        0xcb, 0x61, 0xa1, 0xe8, 0xcb, 0x77, 0xa5, 0xf,
+    ];
+    let mut preimage = Bytes::new(env);
+    preimage.extend_from_array(&protocol);
+    preimage.extend_from_array(&version);
+    preimage.extend_from_array(&network);
+    env.crypto().sha256(&preimage).into()
 }
 
 /// All three registration paths store expires_at correctly when TTL is set.

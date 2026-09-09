@@ -2,21 +2,31 @@ import {
   Address,
   BASE_FEE,
   Contract,
-  nativeToScVal,
   Networks,
   TransactionBuilder,
   scValToNative,
 } from '@stellar/stellar-sdk'
 import { rpc } from '@stellar/stellar-sdk'
 import { signTransaction } from '@stellar/freighter-api'
-import { asHex32, asHexBytes, bytesToHex, scBytes, scBytes32 } from './stellarEncoding'
+import {
+  asHex32,
+  asHexBytes,
+  bytesToHex,
+  scBytes,
+  scBytes32,
+  scU32,
+} from './stellarEncoding'
 import type {
   ChainProofRecord,
+  ChainVerifierState,
   IdentityTier,
   NormalizedRegisterProofInput,
+  ProofHistoryEntry,
+  ProofHistoryResult,
   RegisterProofInput,
   RegisterProofResult,
   RegistryMethod,
+  TxState,
 } from './stellarTypes'
 
 const RPC_URL = import.meta.env.VITE_STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org'
@@ -30,16 +40,40 @@ export const CONTRACT_NETWORK_PASSPHRASE: string = Networks.TESTNET
 
 const NETWORK_PASSPHRASE = CONTRACT_NETWORK_PASSPHRASE
 const READONLY_SOURCE = import.meta.env.VITE_STELLAR_READONLY_SOURCE ?? ''
+const POLL_INTERVAL_MS = 1000
+const POLL_TIMEOUT_MS = 30000
 
-// ---------------------------------------------------------------------------
-// Proof registration (existing + quorum path)
-// ---------------------------------------------------------------------------
+type SendTransactionResponse = Awaited<ReturnType<rpc.Server['sendTransaction']>>
 
-/**
- * Register a proof on Stellar using the standard single-verifier path or
- * the new quorum-based path (when `useQuorum` is set in the input).
- */
-export async function registerProofOnStellar(input: RegisterProofInput): Promise<RegisterProofResult> {
+function initialTxState(status: string): TxState {
+  if (status === 'PENDING' || status === 'DUPLICATE') return 'awaiting_confirmation'
+  return 'submitting'
+}
+
+function resolveTxState(
+  pollResult: rpc.Api.GetSuccessfulTransactionResponse | null,
+  timedOut: boolean,
+): TxState {
+  if (timedOut) return 'timeout'
+  if (pollResult) return 'confirmed'
+  return 'failed'
+}
+
+function resolveStatus(
+  isRejected: boolean,
+  pollResult: rpc.Api.GetSuccessfulTransactionResponse | null,
+  timedOut: boolean,
+): string {
+  if (isRejected) return 'REJECTED_BY_WALLET'
+  if (timedOut) return 'TIMEOUT'
+  if (pollResult) return 'SUCCESS'
+  return 'FAILED'
+}
+
+export async function registerProofOnStellar(
+  input: RegisterProofInput,
+  waitForConfirmation = true,
+): Promise<RegisterProofResult> {
   const normalized = normalizeRegisterProofInput(input)
   const server = new rpc.Server(RPC_URL)
   const account = await server.getAccount(normalized.publicKey)
@@ -62,31 +96,69 @@ export async function registerProofOnStellar(input: RegisterProofInput): Promise
   })
 
   if (signed.error) {
-    throw new Error(signed.error.message)
+    return {
+      hash: '',
+      status: 'REJECTED_BY_WALLET',
+      txState: 'failed',
+    }
   }
 
   const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
-  const submitted = await server.sendTransaction(signedTransaction)
+  const submitted: SendTransactionResponse = await server.sendTransaction(signedTransaction)
 
   if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
-    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
+    return {
+      hash: submitted.hash ?? '',
+      status: 'REJECTED_BY_RPC',
+      txState: 'failed',
+    }
   }
+
+  if (!waitForConfirmation) {
+    return {
+      hash: submitted.hash,
+      status: submitted.status,
+      txState: initialTxState(submitted.status),
+    }
+  }
+
+  const pollResult = await pollForConfirmation(server, submitted.hash)
+  const timedOut = pollResult === null
 
   return {
     hash: submitted.hash,
-    status: submitted.status,
+    status: resolveStatus(false, pollResult, timedOut),
+    txState: resolveTxState(pollResult, timedOut),
   }
 }
 
-// ---------------------------------------------------------------------------
-// Proof lookup
-// ---------------------------------------------------------------------------
+export async function pollForConfirmation(
+  server: rpc.Server,
+  hash: string,
+  timeoutMs = POLL_TIMEOUT_MS,
+): Promise<rpc.Api.GetSuccessfulTransactionResponse | null> {
+  const start = Date.now()
+
+  while (Date.now() - start < timeoutMs) {
+    const response = await server.getTransaction(hash)
+    if (response.status === 'SUCCESS') {
+      return response as rpc.Api.GetSuccessfulTransactionResponse
+    }
+    if (response.status === 'FAILED') {
+      return null
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+  }
+
+  return null
+}
 
 export async function getProofByVideoHash(
   contractId: string,
   videoHash: string,
   sourceAddress?: string,
 ): Promise<ChainProofRecord | null> {
+  assertReleaseCompatibility()
   const source = sourceAddress || READONLY_SOURCE
   if (!source) {
     throw new Error('Set VITE_STELLAR_READONLY_SOURCE or connect a wallet for on-chain verification.')
@@ -125,197 +197,44 @@ export async function getProofByVideoHash(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Verifier-set admin helpers (#126)
-//
-// These are admin-only operations used by governance tooling.
-// They require a connected wallet (Freighter) with the admin key.
-// ---------------------------------------------------------------------------
-
-export interface VerifierSetProposalInput {
-  contractId: string
-  adminPublicKey: string
-  /** Up to 3 verifier contract addresses (for propose_verifier_set_1/2/3). */
-  members: string[]
-  threshold: number
-  circuitVersion: string
-}
-
-export interface VerifierSetResult {
-  version: number
-  memberCount: number
-  threshold: number
-  activeFrom: string
-  retiredAt: string
-  disabled: boolean
-  circuitVersion: string
-}
-
-/**
- * Propose a new verifier set with 1–3 members (uses propose_verifier_set_1/2/3).
- * Returns the proposed version number (activated after timelock expires).
- */
-export async function proposeVerifierSet(input: VerifierSetProposalInput): Promise<RegisterProofResult> {
-  if (input.members.length < 1 || input.members.length > 3) {
-    throw new Error('proposeVerifierSet supports 1–3 members. Use the contract CLI for larger sets.')
-  }
-  if (input.threshold < 1 || input.threshold > input.members.length) {
-    throw new Error(`threshold must be between 1 and ${input.members.length}`)
-  }
-
-  const server = new rpc.Server(RPC_URL)
-  const account = await server.getAccount(input.adminPublicKey)
-  const contract = new Contract(input.contractId)
-
-  const adminScVal = new Address(input.adminPublicKey).toScVal()
-  const thresholdScVal = nativeToScVal(input.threshold, { type: 'u32' })
-  const circuitVersionScVal = nativeToScVal(input.circuitVersion, { type: 'string' })
-  const memberScVals = input.members.map(m => new Address(m).toScVal())
-
-  const methodName = (`propose_verifier_set_${input.members.length}`) as RegistryMethod
-  const args = [adminScVal, ...memberScVals, thresholdScVal, circuitVersionScVal]
-
-  const operation = contract.call(methodName, ...args)
-  const transaction = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(90)
-    .build()
-
-  const prepared = await server.prepareTransaction(transaction)
-  const signed = await signTransaction(prepared.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    address: input.adminPublicKey,
-  })
-  if (signed.error) throw new Error(signed.error.message)
-
-  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
-  const submitted = await server.sendTransaction(signedTransaction)
-  if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
-    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
-  }
-  return { hash: submitted.hash, status: submitted.status }
-}
-
-/**
- * Activate the pending verifier set (timelock must have expired).
- */
-export async function activateVerifierSet(contractId: string, adminPublicKey: string): Promise<RegisterProofResult> {
-  const server = new rpc.Server(RPC_URL)
-  const account = await server.getAccount(adminPublicKey)
-  const contract = new Contract(contractId)
-
-  const operation = contract.call(
-    'activate_verifier_set' satisfies RegistryMethod,
-    new Address(adminPublicKey).toScVal(),
-  )
-  const transaction = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(90)
-    .build()
-
-  const prepared = await server.prepareTransaction(transaction)
-  const signed = await signTransaction(prepared.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    address: adminPublicKey,
-  })
-  if (signed.error) throw new Error(signed.error.message)
-
-  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
-  const submitted = await server.sendTransaction(signedTransaction)
-  if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
-    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
-  }
-  return { hash: submitted.hash, status: submitted.status }
-}
-
-/**
- * Emergency-disable a verifier set version.
- */
-export async function disableVerifierSet(
+export async function getBatchProofStatuses(
   contractId: string,
-  adminPublicKey: string,
-  version: number,
-): Promise<RegisterProofResult> {
-  const server = new rpc.Server(RPC_URL)
-  const account = await server.getAccount(adminPublicKey)
-  const contract = new Contract(contractId)
-
-  const operation = contract.call(
-    'disable_verifier_set' satisfies RegistryMethod,
-    new Address(adminPublicKey).toScVal(),
-    nativeToScVal(version, { type: 'u32' }),
-  )
-  const transaction = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(90)
-    .build()
-
-  const prepared = await server.prepareTransaction(transaction)
-  const signed = await signTransaction(prepared.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    address: adminPublicKey,
-  })
-  if (signed.error) throw new Error(signed.error.message)
-
-  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
-  const submitted = await server.sendTransaction(signedTransaction)
-  if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
-    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
-  }
-  return { hash: submitted.hash, status: submitted.status }
-}
-
-/**
- * Read the currently active verifier set (simulation, no signature required).
- */
-export async function getActiveVerifierSet(
-  contractId: string,
+  proofIds: string[],
   sourceAddress?: string,
-): Promise<VerifierSetResult | null> {
+): Promise<number[] | null> {
   const source = sourceAddress || READONLY_SOURCE
-  if (!source) throw new Error('Set VITE_STELLAR_READONLY_SOURCE for read-only calls.')
+  if (!source) {
+    throw new Error('Set VITE_STELLAR_READONLY_SOURCE or connect a wallet for on-chain verification.')
+  }
 
   const server = new rpc.Server(RPC_URL)
   const account = await server.getAccount(source)
   const contract = new Contract(contractId)
+  
+  const scProofIds = proofIds.map(id => scBytes32(asHex32(id, 'proofId')))
+  
   const transaction = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(contract.call('get_active_verifier_set' satisfies RegistryMethod))
+    .addOperation(contract.call('get_proof_statuses' as any, scProofIds))
     .setTimeout(30)
     .build()
 
   const simulation = await server.simulateTransaction(transaction)
-  if (rpc.Api.isSimulationError(simulation)) throw new Error(simulation.error)
-  if (!rpc.Api.isSimulationSuccess(simulation) && !rpc.Api.isSimulationRestore(simulation)) return null
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(simulation.error)
+  }
+  if (!rpc.Api.isSimulationSuccess(simulation) && !rpc.Api.isSimulationRestore(simulation)) {
+    return null
+  }
 
   const native = simulation.result?.retval ? scValToNative(simulation.result.retval) : null
-  if (!native) return null
+  if (!native || !Array.isArray(native)) return null
 
-  return {
-    version: Number(native.version),
-    memberCount: Number(native.member_count),
-    threshold: Number(native.threshold),
-    activeFrom: native.active_from?.toString?.() ?? String(native.active_from),
-    retiredAt: native.retired_at?.toString?.() ?? String(native.retired_at),
-    disabled: Boolean(native.disabled),
-    circuitVersion: String(native.circuit_version ?? ''),
-  }
+  // returns array of status enum values mapped to numbers
+  return native.map((val: any) => Number(val))
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function normalizeRegisterProofInput(input: RegisterProofInput): NormalizedRegisterProofInput {
   return {
@@ -368,4 +287,298 @@ function argsForTier(input: NormalizedRegisterProofInput) {
   }
 
   return [address, videoHash, metadataHash, proofId]
+}
+
+export async function getProof(
+  contractId: string,
+  proofId: string,
+  sourceAddress?: string,
+): Promise<ChainProofRecord | null> {
+  const source = sourceAddress || READONLY_SOURCE
+  if (!source) {
+    throw new Error('Set VITE_STELLAR_READONLY_SOURCE or connect a wallet for on-chain verification.')
+  }
+
+  const server = new rpc.Server(RPC_URL)
+  const account = await server.getAccount(source)
+  const contract = new Contract(contractId)
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(contract.call('get_proof' satisfies RegistryMethod, scBytes32(asHex32(proofId, 'proofId'))))
+    .setTimeout(30)
+    .build()
+
+  const simulation = await server.simulateTransaction(transaction)
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(simulation.error)
+  }
+  if (!rpc.Api.isSimulationSuccess(simulation) && !rpc.Api.isSimulationRestore(simulation)) {
+    return null
+  }
+
+  const native = simulation.result?.retval ? scValToNative(simulation.result.retval) : null
+  if (!native) return null
+
+  return {
+    videoHash: bytesToHex(native.video_hash),
+    metadataHash: bytesToHex(native.metadata_hash),
+    tier: Number(native.tier),
+    status: Number(native.status),
+    createdAt: native.created_at?.toString?.() ?? String(native.created_at),
+    source: native.source ?? null,
+    issuer: native.issuer ?? null,
+  }
+}
+
+export async function getProofHistory(
+  contractId: string,
+  proofId: string,
+  sourceAddress?: string,
+  limit = 256,
+): Promise<ProofHistoryResult> {
+  const source = sourceAddress || READONLY_SOURCE
+  if (!source) {
+    throw new Error('Set VITE_STELLAR_READONLY_SOURCE or connect a wallet for on-chain verification.')
+  }
+
+  const count = await getProofHistoryCount(contractId, proofId, sourceAddress)
+  const cappedLimit = Math.min(limit, count)
+  const entries: ProofHistoryEntry[] = []
+
+  for (let seq = 1; seq <= cappedLimit; seq += 1) {
+    const entry = await getProofHistoryAt(contractId, proofId, sourceAddress, seq)
+    if (entry) {
+      entries.push(entry)
+    }
+  }
+
+  return { entries, count }
+}
+
+export async function getProofHistoryAt(
+  contractId: string,
+  proofId: string,
+  sourceAddress?: string,
+  seq = 1,
+): Promise<ProofHistoryEntry | null> {
+  const source = sourceAddress || READONLY_SOURCE
+  if (!source) {
+    throw new Error('Set VITE_STELLAR_READONLY_SOURCE or connect a wallet for on-chain verification.')
+  }
+
+  const server = new rpc.Server(RPC_URL)
+  const account = await server.getAccount(source)
+  const contract = new Contract(contractId)
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        'get_proof_history_at' satisfies RegistryMethod,
+        scBytes32(asHex32(proofId, 'proofId')),
+        scU32(seq),
+      ),
+    )
+    .setTimeout(30)
+    .build()
+
+  const simulation = await server.simulateTransaction(transaction)
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(simulation.error)
+  }
+  if (!rpc.Api.isSimulationSuccess(simulation) && !rpc.Api.isSimulationRestore(simulation)) {
+    return null
+  }
+
+  const native = simulation.result?.retval ? scValToNative(simulation.result.retval) : null
+  if (!native) return null
+
+  return {
+    action: Number(native.action) as ProofHistoryEntry['action'],
+    timestamp: native.timestamp?.toString?.() ?? String(native.timestamp),
+    actor: native.actor == null ? null : String(native.actor),
+    reasonCode: Number(native.reason_code),
+  }
+}
+
+export async function getProofHistoryCount(
+  contractId: string,
+  proofId: string,
+  sourceAddress?: string,
+): Promise<number> {
+  const source = sourceAddress || READONLY_SOURCE
+  if (!source) {
+    throw new Error('Set VITE_STELLAR_READONLY_SOURCE or connect a wallet for on-chain verification.')
+  }
+
+  const server = new rpc.Server(RPC_URL)
+  const account = await server.getAccount(source)
+  const contract = new Contract(contractId)
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(contract.call('get_proof_history_count' satisfies RegistryMethod, scBytes32(asHex32(proofId, 'proofId'))))
+    .setTimeout(30)
+    .build()
+
+  const simulation = await server.simulateTransaction(transaction)
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(simulation.error)
+  }
+  if (!rpc.Api.isSimulationSuccess(simulation) && !rpc.Api.isSimulationRestore(simulation)) {
+    return 0
+  }
+
+  const native = simulation.result?.retval ? scValToNative(simulation.result.retval) : 0
+  return Number(native)
+}
+
+export async function verifyProof(
+  contractId: string,
+  publicKey: string,
+  proofId: string,
+  reasonCode: number,
+): Promise<RegisterProofResult> {
+  const server = new rpc.Server(RPC_URL)
+  const account = await server.getAccount(publicKey)
+  const contract = new Contract(contractId)
+  const operation = contract.call(
+    'verify_proof' satisfies RegistryMethod,
+    new Address(publicKey).toScVal(),
+    scBytes32(asHex32(proofId, 'proofId')),
+    scU32(reasonCode),
+  )
+
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(operation)
+    .setTimeout(90)
+    .build()
+
+  const prepared = await server.prepareTransaction(transaction)
+  const signed = await signTransaction(prepared.toXDR(), {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    address: publicKey,
+  })
+
+  if (signed.error) {
+    throw new Error(signed.error.message)
+  }
+
+  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
+  const submitted = await server.sendTransaction(signedTransaction)
+
+  if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
+    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
+  }
+
+  return {
+    hash: submitted.hash,
+    status: submitted.status,
+    txState: initialTxState(submitted.status),
+  }
+}
+
+export async function expireProof(
+  contractId: string,
+  publicKey: string,
+  proofId: string,
+  reasonCode: number,
+): Promise<RegisterProofResult> {
+  const server = new rpc.Server(RPC_URL)
+  const account = await server.getAccount(publicKey)
+  const contract = new Contract(contractId)
+  const operation = contract.call(
+    'expire_proof' satisfies RegistryMethod,
+    new Address(publicKey).toScVal(),
+    scBytes32(asHex32(proofId, 'proofId')),
+    scU32(reasonCode),
+  )
+
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(operation)
+    .setTimeout(90)
+    .build()
+
+  const prepared = await server.prepareTransaction(transaction)
+  const signed = await signTransaction(prepared.toXDR(), {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    address: publicKey,
+  })
+
+  if (signed.error) {
+    throw new Error(signed.error.message)
+  }
+
+  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
+  const submitted = await server.sendTransaction(signedTransaction)
+
+  if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
+    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
+  }
+
+  return {
+    hash: submitted.hash,
+    status: submitted.status,
+    txState: initialTxState(submitted.status),
+  }
+}
+
+export async function correctProof(
+  contractId: string,
+  publicKey: string,
+  proofId: string,
+  newMetadataHash: string,
+  reasonCode: number,
+): Promise<RegisterProofResult> {
+  const server = new rpc.Server(RPC_URL)
+  const account = await server.getAccount(publicKey)
+  const contract = new Contract(contractId)
+  const operation = contract.call(
+    'correct_proof' satisfies RegistryMethod,
+    new Address(publicKey).toScVal(),
+    scBytes32(asHex32(proofId, 'proofId')),
+    scBytes32(asHex32(newMetadataHash, 'newMetadataHash')),
+    scU32(reasonCode),
+  )
+
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(operation)
+    .setTimeout(90)
+    .build()
+
+  const prepared = await server.prepareTransaction(transaction)
+  const signed = await signTransaction(prepared.toXDR(), {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    address: publicKey,
+  })
+
+  if (signed.error) {
+    throw new Error(signed.error.message)
+  }
+
+  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE)
+  const submitted = await server.sendTransaction(signedTransaction)
+
+  if ('errorResultXdr' in submitted && submitted.errorResultXdr) {
+    throw new Error(`Stellar RPC rejected the transaction: ${submitted.errorResultXdr}`)
+  }
+
+  return {
+    hash: submitted.hash,
+    status: submitted.status,
+    txState: initialTxState(submitted.status),
+  }
 }

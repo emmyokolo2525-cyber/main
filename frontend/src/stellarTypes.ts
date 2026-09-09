@@ -34,9 +34,61 @@ export type NormalizedRegisterProofInput = {
   useQuorum?: boolean
 }
 
+export type TxState = 'idle' | 'submitting' | 'awaiting_confirmation' | 'confirmed' | 'failed' | 'timeout'
+
+export type TxStatusLabel =
+  | 'Not submitted'
+  | 'Pending'
+  | 'Confirmed'
+  | 'Failed'
+  | 'Rejected by wallet'
+  | 'Timed out'
+
+export function describeTxState(state: TxState): TxStatusLabel {
+  switch (state) {
+    case 'idle':
+      return 'Not submitted'
+    case 'submitting':
+      return 'Pending'
+    case 'awaiting_confirmation':
+      return 'Pending'
+    case 'confirmed':
+      return 'Confirmed'
+    case 'failed':
+      return 'Failed'
+    case 'timeout':
+      return 'Timed out'
+  }
+}
+
 export type RegisterProofResult = {
   hash: string
   status: string
+  txState: TxState
+}
+
+export type VerifierRotationInput = {
+  contractId: string
+  publicKey: string
+  verifier: string
+  activationLedger: number | bigint
+  overlapWindow: number | bigint
+  rollbackWindow: number | bigint
+}
+
+export type VerifierRotationActionInput = {
+  contractId: string
+  publicKey: string
+}
+
+export type ChainVerifierState = {
+  activeVerifier: string | null
+  pendingVerifier: string | null
+  previousVerifier: string | null
+  activationLedger: string
+  overlapWindow: string
+  rollbackWindow: string
+  rollbackWindowEnd: string
 }
 
 export type ChainProofRecord = {
@@ -49,17 +101,44 @@ export type ChainProofRecord = {
   issuer: string | null
 }
 
+export type SupportedPredicateType = 'Equality' | 'SetMembership' | 'Range'
+
+export type SelectiveDisclosureChainInput = {
+  publicInputs: string
+  proof: string
+  schemaHash: string
+  evidenceDigest: string
+}
+
+export type SchemaChainRecord = {
+  schemaHash: string
+  issuerNamespace: string
+  version: number
+  active: boolean
+  attributeCount: number
+  createdAt: string
+}
+
 export type RegistryMethod =
   | 'register_anonymous_verified'
   | 'register_anon_verified_quorum'
   | 'register_source'
   | 'register_seal'
   | 'get_by_video'
-  | 'propose_verifier_set_1'
-  | 'propose_verifier_set_2'
-  | 'propose_verifier_set_3'
-  | 'activate_verifier_set'
-  | 'disable_verifier_set'
-  | 'get_active_verifier_set'
-  | 'get_verifier_set'
-  | 'get_verifier_set_member'
+  | 'set_scope_epoch'
+  | 'get_scope_epoch'
+  | 'verify_selective_disclosure'
+  | 'add_schema'
+  | 'get_schema'
+
+export type ScopedProofScope = {
+  /** Field element derived from the scope string (SHA-256 mod BN254). */
+  scopeField: string
+  /** Human-readable scope name (for manifest only, not sent on-chain). */
+  scopeName: string
+}
+
+export type ScopedProofEpoch = {
+  /** Epoch number matching the on-chain scope epoch. */
+  epoch: number
+}

@@ -1,62 +1,58 @@
-/// Soroban resource-budget baseline tests (#94)
-///
-/// These tests capture CPU-instruction and memory-byte baselines for every
-/// high-cost registry operation and assert they stay within declared
-/// thresholds.  The baselines serve as regression guards: any commit that
-/// accidentally inflates resource consumption will fail CI.
-///
-/// Budget enforcement against Soroban host limits is tested implicitly:
-/// the host would reject any operation whose budget exceeded the default
-/// network limits; our threshold assertions catch regressions before they
-/// reach that point.  (Deliberate host-enforcement tests that set tight
-/// `reset_limits` were removed because the Soroban test environment can
-/// crash on budget-exhaustion destructors.)
-///
-/// ## Threshold design
-///
-/// Baselines are set with a generous multiplier (3×) above the measured
-/// worst-case inputs to absorb minor SDK/compiler variance while still
-/// catching real regressions.  Each test:
-///   1. Resets the budget before the target call.
-///   2. Executes the target call (with worst-case inputs where applicable).
-///   3. Reads `cpu_instruction_cost()` and `memory_bytes_cost()` from
-///      `env.cost_estimate().budget()`.
-///   4. Asserts both are below the declared maximum.
-///
-/// **Note:** These baselines may need calibration on first CI run as actual
-/// Soroban host overhead varies.  The thresholds include a 3× safety margin.
-///
-/// ## Operations under test
-///
-/// | Operation                    | Justification                              |
-/// |------------------------------|--------------------------------------------|
-/// | `init`                       | One-time setup; must be cheap.             |
-/// | `add_issuer`                 | Admin action; writes persistent storage.   |
-/// | `add_credential_root`        | Admin action; writes persistent storage.   |
-/// | `set_verifier`               | Admin action; writes persistent storage.   |
-/// | `register_source`            | Most common tier-2 path.                   |
-/// | `register_seal`              | Tier-3 path with issuer lookup.            |
-/// | `register_anonymous`         | Tier-1 path with nullifier + ZK boundary.  |
-/// | `register_anonymous_verified`| Tier-1 path with external verifier call.   |
-/// | `revoke_proof`               | Admin action; mutates existing record.     |
-/// | `get_proof_status`           | Read-only query; must be sub-linear.       |
-///
-/// ## Variance policy
-///
-/// - These tests run with `mock_all_auths()` so auth cost is excluded.
-/// - Budgets are reset immediately before the measured call, so setup
-///   costs (contract registration, earlier admin calls) are excluded.
-/// - The chosen baselines represent worst-case inputs (full 32-byte
-///   arrays, maximal metadata, presence of all optional fields).
-/// - Repeated-registration tests ensure no unbounded growth across calls.
+//! Soroban resource-budget baseline tests (#94)
+//!
+//! These tests capture CPU-instruction and memory-byte baselines for every
+//! high-cost registry operation and assert they stay within declared
+//! thresholds.  The baselines serve as regression guards: any commit that
+//! accidentally inflates resource consumption will fail CI.
+//!
+//! Budget enforcement against Soroban host limits is tested implicitly:
+//! the host would reject any operation whose budget exceeded the default
+//! network limits; our threshold assertions catch regressions before they
+//! reach that point.  (Deliberate host-enforcement tests that set tight
+//! `reset_limits` were removed because the Soroban test environment can
+//! crash on budget-exhaustion destructors.)
+//!
+//! ## Threshold design
+//!
+//! Baselines are set with a generous multiplier (3×) above the measured
+//! worst-case inputs to absorb minor SDK/compiler variance while still
+//! catching real regressions.  Each test:
+//!   1. Resets the budget before the target call.
+//!   2. Executes the target call (with worst-case inputs where applicable).
+//!   3. Reads `cpu_instruction_cost()` and `memory_bytes_cost()` from
+//!      `env.cost_estimate().budget()`.
+//!   4. Asserts both are below the declared maximum.
+//!
+//! **Note:** These baselines may need calibration on first CI run as actual
+//! Soroban host overhead varies.  The thresholds include a 3× safety margin.
+//!
+//! ## Operations under test
+//!
+//! | Operation                    | Justification                              |
+//! |------------------------------|--------------------------------------------|
+//! | `init`                       | One-time setup; must be cheap.             |
+//! | `add_issuer`                 | Admin action; writes persistent storage.   |
+//! | `add_credential_root`        | Admin action; writes persistent storage.   |
+//! | `set_verifier`               | Admin action; writes persistent storage.   |
+//! | `register_source`            | Most common tier-2 path.                   |
+//! | `register_seal`              | Tier-3 path with issuer lookup.            |
+//! | `register_anonymous`         | Tier-1 path with nullifier + ZK boundary.  |
+//! | `register_anonymous_verified`| Tier-1 path with external verifier call.   |
+//! | `revoke_proof`               | Admin action; mutates existing record.     |
+//! | `get_proof_status`           | Read-only query; must be sub-linear.       |
+//!
+//! ## Variance policy
+//!
+//! - These tests run with `mock_all_auths()` so auth cost is excluded.
+//! - Budgets are reset immediately before the measured call, so setup
+//!   costs (contract registration, earlier admin calls) are excluded.
+//! - The chosen baselines represent worst-case inputs (full 32-byte
+//!   arrays, maximal metadata, presence of all optional fields).
+//! - Repeated-registration tests ensure no unbounded growth across calls.
 #[cfg(test)]
 use super::*;
 #[cfg(test)]
-use soroban_sdk::{
-    contract, contractimpl,
-    testutils::Address as _,
-    Address, Bytes, Env,
-};
+use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Bytes, Env};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -106,7 +102,8 @@ struct MockBudgetVerifier;
 #[contractimpl]
 impl MockBudgetVerifier {
     pub fn verify_proof(_env: Env, public_inputs: Bytes, proof: Bytes) {
-        if public_inputs.len() != 128 || proof.is_empty() {
+        let len = public_inputs.len();
+        if (len != 128 && len != 192) || proof.is_empty() {
             panic!("invalid proof");
         }
     }
@@ -122,7 +119,11 @@ fn measure<T>(env: &Env, f: impl FnOnce() -> T) -> (u64, u64, T) {
     env.cost_estimate().budget().reset_unlimited();
     let result = f();
     let budget = env.cost_estimate().budget();
-    (budget.cpu_instruction_cost(), budget.memory_bytes_cost(), result)
+    (
+        budget.cpu_instruction_cost(),
+        budget.memory_bytes_cost(),
+        result,
+    )
 }
 
 /// Assert that cpu and mem are within the given thresholds.
@@ -207,7 +208,13 @@ fn budget_add_issuer_baseline() {
     let (cpu, mem, _) = measure(&env, || {
         client.add_issuer(&admin, &issuer, &b32(&env, 0xAA))
     });
-    assert_within(cpu, mem, MAX_CPU_ADD_ISSUER, MAX_MEM_ADD_ISSUER, "add_issuer");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_ADD_ISSUER,
+        MAX_MEM_ADD_ISSUER,
+        "add_issuer",
+    );
 }
 
 #[test]
@@ -223,7 +230,13 @@ fn budget_add_credential_root_baseline() {
     let (cpu, mem, _) = measure(&env, || {
         client.add_credential_root(&admin, &b32(&env, 0xBB), &b32(&env, 0xCC))
     });
-    assert_within(cpu, mem, MAX_CPU_ADD_CREDENTIAL_ROOT, MAX_MEM_ADD_CREDENTIAL_ROOT, "add_credential_root");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_ADD_CREDENTIAL_ROOT,
+        MAX_MEM_ADD_CREDENTIAL_ROOT,
+        "add_credential_root",
+    );
 }
 
 #[test]
@@ -237,10 +250,14 @@ fn budget_set_verifier_baseline() {
     let verifier = Address::generate(&env);
     client.init(&admin);
 
-    let (cpu, mem, _) = measure(&env, || {
-        client.set_verifier(&admin, &verifier)
-    });
-    assert_within(cpu, mem, MAX_CPU_SET_VERIFIER, MAX_MEM_SET_VERIFIER, "set_verifier");
+    let (cpu, mem, _) = measure(&env, || client.set_verifier(&admin, &verifier));
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_SET_VERIFIER,
+        MAX_MEM_SET_VERIFIER,
+        "set_verifier",
+    );
 }
 
 #[test]
@@ -255,9 +272,20 @@ fn budget_register_source_baseline() {
     client.init(&admin);
 
     let (cpu, mem, _) = measure(&env, || {
-        client.register_source(&source, &b32(&env, 0x01), &b32(&env, 0x02), &b32(&env, 0x03))
+        client.register_source(
+            &source,
+            &b32(&env, 0x01),
+            &b32(&env, 0x02),
+            &b32(&env, 0x03),
+        )
     });
-    assert_within(cpu, mem, MAX_CPU_REGISTER_SOURCE, MAX_MEM_REGISTER_SOURCE, "register_source");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REGISTER_SOURCE,
+        MAX_MEM_REGISTER_SOURCE,
+        "register_source",
+    );
 }
 
 #[test]
@@ -273,9 +301,20 @@ fn budget_register_seal_baseline() {
     client.add_issuer(&admin, &issuer, &b32(&env, 0xAA));
 
     let (cpu, mem, _) = measure(&env, || {
-        client.register_seal(&issuer, &b32(&env, 0x11), &b32(&env, 0x12), &b32(&env, 0x13))
+        client.register_seal(
+            &issuer,
+            &b32(&env, 0x11),
+            &b32(&env, 0x12),
+            &b32(&env, 0x13),
+        )
     });
-    assert_within(cpu, mem, MAX_CPU_REGISTER_SEAL, MAX_MEM_REGISTER_SEAL, "register_seal");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REGISTER_SEAL,
+        MAX_MEM_REGISTER_SEAL,
+        "register_seal",
+    );
 }
 
 #[test]
@@ -299,7 +338,13 @@ fn budget_register_anonymous_baseline() {
             &proof_buf(&env),
         )
     });
-    assert_within(cpu, mem, MAX_CPU_REGISTER_ANONYMOUS, MAX_MEM_REGISTER_ANONYMOUS, "register_anonymous");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REGISTER_ANONYMOUS,
+        MAX_MEM_REGISTER_ANONYMOUS,
+        "register_anonymous",
+    );
 }
 
 #[test]
@@ -328,7 +373,13 @@ fn budget_register_anonymous_verified_baseline() {
             &proof_buf(&env),
         )
     });
-    assert_within(cpu, mem, MAX_CPU_REGISTER_ANONYMOUS_VERIFIED, MAX_MEM_REGISTER_ANONYMOUS_VERIFIED, "register_anonymous_verified");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REGISTER_ANONYMOUS_VERIFIED,
+        MAX_MEM_REGISTER_ANONYMOUS_VERIFIED,
+        "register_anonymous_verified",
+    );
 }
 
 #[test]
@@ -345,10 +396,14 @@ fn budget_revoke_proof_baseline() {
     client.init(&admin);
     client.register_source(&source, &b32(&env, 0x42), &b32(&env, 0x43), &proof_id);
 
-    let (cpu, mem, _) = measure(&env, || {
-        client.revoke_proof(&admin, &proof_id)
-    });
-    assert_within(cpu, mem, MAX_CPU_REVOKE_PROOF, MAX_MEM_REVOKE_PROOF, "revoke_proof");
+    let (cpu, mem, _) = measure(&env, || client.revoke_proof(&admin, &proof_id));
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REVOKE_PROOF,
+        MAX_MEM_REVOKE_PROOF,
+        "revoke_proof",
+    );
 }
 
 #[test]
@@ -365,11 +420,57 @@ fn budget_get_proof_status_baseline() {
     client.init(&admin);
     client.register_source(&source, &b32(&env, 0x52), &b32(&env, 0x53), &proof_id);
 
-    let (cpu, mem, status) = measure(&env, || {
-        client.get_proof_status(&proof_id)
-    });
+    let (cpu, mem, status) = measure(&env, || client.get_proof_status(&proof_id));
     assert_eq!(status, ProofVerificationStatus::Valid);
-    assert_within(cpu, mem, MAX_CPU_GET_PROOF_STATUS, MAX_MEM_GET_PROOF_STATUS, "get_proof_status");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_GET_PROOF_STATUS,
+        MAX_MEM_GET_PROOF_STATUS,
+        "get_proof_status",
+    );
+}
+
+const MAX_CPU_GET_PROOF_STATUSES: u64 = 4_000_000;
+const MAX_MEM_GET_PROOF_STATUSES: u64 = 3_000_000;
+
+#[test]
+fn budget_get_proof_statuses_baseline() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(HarpocratesRegistry, ());
+    let client = HarpocratesRegistryClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let source = Address::generate(&env);
+
+    client.init(&admin);
+    
+    // Register 10 proofs
+    let mut proof_ids = SorobanVec::new(&env);
+    for i in 0..10u8 {
+        let proof_id = b32(&env, 0xA0 + i);
+        client.register_source(&source, &b32(&env, 0xB0 + i), &b32(&env, 0xC0 + i), &proof_id);
+        proof_ids.push_back(proof_id);
+    }
+    
+    // Pad to 100 ids for worst-case read (90 will be missing/not found)
+    for i in 10..100u8 {
+        proof_ids.push_back(b32(&env, 0xD0 + i));
+    }
+
+    let (cpu, mem, statuses) = measure(&env, || client.get_proof_statuses(&proof_ids));
+    assert_eq!(statuses.len(), 100);
+    assert_eq!(statuses.get(0).unwrap(), ProofVerificationStatus::Valid);
+    assert_eq!(statuses.get(10).unwrap(), ProofVerificationStatus::NotFound);
+    
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_GET_PROOF_STATUSES,
+        MAX_MEM_GET_PROOF_STATUSES,
+        "get_proof_statuses",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -391,17 +492,35 @@ fn budget_consecutive_registrations_stable() {
 
     // First registration
     let (cpu_first, mem_first, _) = measure(&env, || {
-        client.register_source(&source, &b32(&env, 0x71), &b32(&env, 0x72), &b32(&env, 0x73))
+        client.register_source(
+            &source,
+            &b32(&env, 0x71),
+            &b32(&env, 0x72),
+            &b32(&env, 0x73),
+        )
     });
 
     // Second registration
     let (cpu_second, mem_second, _) = measure(&env, || {
-        client.register_source(&source, &b32(&env, 0x74), &b32(&env, 0x75), &b32(&env, 0x76))
+        client.register_source(
+            &source,
+            &b32(&env, 0x74),
+            &b32(&env, 0x75),
+            &b32(&env, 0x76),
+        )
     });
 
     // Budget should be stable; allow up to 20% variance
-    let cpu_ratio = if cpu_first == 0 { 1.0 } else { cpu_second as f64 / cpu_first as f64 };
-    let mem_ratio = if mem_first == 0 { 1.0 } else { mem_second as f64 / mem_first as f64 };
+    let cpu_ratio = if cpu_first == 0 {
+        1.0
+    } else {
+        cpu_second as f64 / cpu_first as f64
+    };
+    let mem_ratio = if mem_first == 0 {
+        1.0
+    } else {
+        mem_second as f64 / mem_first as f64
+    };
 
     assert!(
         (0.8..=1.2).contains(&cpu_ratio),
@@ -443,9 +562,20 @@ fn budget_sixth_registration_within_baseline() {
 
     // Measure the 6th
     let (cpu, mem, _) = measure(&env, || {
-        client.register_source(&source, &b32(&env, 0x90), &b32(&env, 0x91), &b32(&env, 0x92))
+        client.register_source(
+            &source,
+            &b32(&env, 0x90),
+            &b32(&env, 0x91),
+            &b32(&env, 0x92),
+        )
     });
-    assert_within(cpu, mem, MAX_CPU_REGISTER_SOURCE, MAX_MEM_REGISTER_SOURCE, "6th register_source");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REGISTER_SOURCE,
+        MAX_MEM_REGISTER_SOURCE,
+        "6th register_source",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +599,18 @@ fn budget_register_seal_worst_case() {
     client.set_proof_ttl(&admin, &86_400u64);
 
     let (cpu, mem, _) = measure(&env, || {
-        client.register_seal(&issuer, &b32(&env, 0x61), &b32(&env, 0x62), &b32(&env, 0x63))
+        client.register_seal(
+            &issuer,
+            &b32(&env, 0x61),
+            &b32(&env, 0x62),
+            &b32(&env, 0x63),
+        )
     });
-    assert_within(cpu, mem, MAX_CPU_REGISTER_SEAL_WORST_CASE, MAX_MEM_REGISTER_SEAL_WORST_CASE, "register_seal worst-case");
+    assert_within(
+        cpu,
+        mem,
+        MAX_CPU_REGISTER_SEAL_WORST_CASE,
+        MAX_MEM_REGISTER_SEAL_WORST_CASE,
+        "register_seal worst-case",
+    );
 }

@@ -1,23 +1,23 @@
-/// Authorization matrix tests (#46)
-///
-/// Every privileged entry point is tested against each actor class:
-///
-/// | Actor          | Description                                      |
-/// |----------------|--------------------------------------------------|
-/// | admin          | the address stored as registry admin             |
-/// | pending_admin  | a different address that *would* be admin        |
-/// | issuer         | an address registered as an active issuer        |
-/// | source         | an arbitrary wallet (tier-2 registrant)          |
-///
-/// For each entry point the suite asserts:
-///   - The allowed caller succeeds.
-///   - Every disallowed caller produces the exact expected `RegistryError`.
-///
-/// Error codes (from `RegistryError` repr):
-///   #1  AlreadyInitialized
-///   #2  NotInitialized
-///   #3  Unauthorized
-///   #8  UnknownIssuer
+//! Authorization matrix tests (#46)
+//!
+//! Every privileged entry point is tested against each actor class:
+//!
+//! | Actor          | Description                                      |
+//! |----------------|--------------------------------------------------|
+//! | admin          | the address stored as registry admin             |
+//! | pending_admin  | a different address that *would* be admin        |
+//! | issuer         | an address registered as an active issuer        |
+//! | source         | an arbitrary wallet (tier-2 registrant)          |
+//!
+//! For each entry point the suite asserts:
+//!   - The allowed caller succeeds.
+//!   - Every disallowed caller produces the exact expected `RegistryError`.
+//!
+//! Error codes (from `RegistryError` repr):
+//!   #1  AlreadyInitialized
+//!   #2  NotInitialized
+//!   #3  Unauthorized
+//!   #8  UnknownIssuer
 #[cfg(test)]
 use super::*;
 #[cfg(test)]
@@ -268,7 +268,12 @@ fn auth_revoke_proof_pending_admin_rejected() {
     let (env, contract_id, _, pending_admin, _, source) = setup();
     let client = HarpocratesRegistryClient::new(&env, &contract_id);
     let proof_id = bytes32(&env, 0x04);
-    client.register_source(&source, &bytes32(&env, 0x05), &bytes32(&env, 0x06), &proof_id);
+    client.register_source(
+        &source,
+        &bytes32(&env, 0x05),
+        &bytes32(&env, 0x06),
+        &proof_id,
+    );
     client.revoke_proof(&pending_admin, &proof_id);
 }
 
@@ -278,7 +283,12 @@ fn auth_revoke_proof_issuer_rejected() {
     let (env, contract_id, _, _, issuer, source) = setup();
     let client = HarpocratesRegistryClient::new(&env, &contract_id);
     let proof_id = bytes32(&env, 0x07);
-    client.register_source(&source, &bytes32(&env, 0x08), &bytes32(&env, 0x09), &proof_id);
+    client.register_source(
+        &source,
+        &bytes32(&env, 0x08),
+        &bytes32(&env, 0x09),
+        &proof_id,
+    );
     client.revoke_proof(&issuer, &proof_id);
 }
 
@@ -288,7 +298,12 @@ fn auth_revoke_proof_source_self_rejected() {
     let (env, contract_id, _, _, _, source) = setup();
     let client = HarpocratesRegistryClient::new(&env, &contract_id);
     let proof_id = bytes32(&env, 0x0A);
-    client.register_source(&source, &bytes32(&env, 0x0B), &bytes32(&env, 0x0C), &proof_id);
+    client.register_source(
+        &source,
+        &bytes32(&env, 0x0B),
+        &bytes32(&env, 0x0C),
+        &proof_id,
+    );
     // The source that registered cannot revoke its own proof
     client.revoke_proof(&source, &proof_id);
 }

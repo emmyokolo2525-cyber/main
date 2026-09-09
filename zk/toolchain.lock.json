@@ -1,0 +1,168 @@
+{
+  "format": "harpocrates.zk-toolchain-lock",
+  "version": 1,
+  "description": "Pinned toolchain and normalization policy for reproducible Noir/Barretenberg artifacts. Every generated ACIR bundle, verification key, and WASM artifact must be byte-identical across two independent builds on this toolchain after normalization. See docs/zk-reproducible-builds.md.",
+
+  "toolchain": {
+    "nargo": {
+      "version": "1.0.0-beta.9",
+      "install": "noirup --version 1.0.0-beta.9",
+      "verify": "nargo --version"
+    },
+    "barretenberg": {
+      "version": "0.87.0",
+      "install": "bbup --version 0.87.0",
+      "verify": "bb --version"
+    },
+    "proving_scheme": "ultra_honk",
+    "oracle_hash": "keccak"
+  },
+
+  "environment": {
+    "description": "Variables that must be pinned for a hermetic build. The build script exports these; any unpinned variable that leaks into an artifact is a reproducibility bug, not a configuration choice.",
+    "SOURCE_DATE_EPOCH": "0",
+    "TZ": "UTC",
+    "LC_ALL": "C",
+    "LANG": "C",
+    "NARGO_BACKEND_PATH": "",
+    "RUST_BACKTRACE": "0"
+  },
+
+  "normalization": {
+    "description": "Artifacts embed build-host detail that is irrelevant to the circuit's semantics. Normalization removes exactly these fields before digesting, so a genuine circuit change is never masked and a benign host difference never trips drift detection.",
+    "json": {
+      "canonical_form": "UTF-8, keys sorted, separators (',',':'), trailing newline stripped",
+      "volatile_keys": [
+        "debug_symbols",
+        "file_map",
+        "names",
+        "brillig_names",
+        "warnings"
+      ]
+    },
+    "wasm": {
+      "canonical_form": "custom sections in `strip_custom_sections` removed, all other sections byte-preserved and order-preserved",
+      "strip_custom_sections": [
+        "producers",
+        "target_features",
+        "name",
+        ".debug_info",
+        ".debug_abbrev",
+        ".debug_line",
+        ".debug_str",
+        ".debug_ranges",
+        ".debug_loc",
+        ".debug_pubnames",
+        ".debug_pubtypes",
+        "sourceMappingURL",
+        "external_debug_info"
+      ]
+    },
+    "binary": {
+      "canonical_form": "byte-for-byte; verification keys and proofs carry no host metadata and must never require normalization"
+    }
+  },
+
+  "artifacts": [
+    {
+      "path": "zk/noir/silent_witness/target/silent_witness.json",
+      "kind": "json",
+      "role": "acir",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness/target/vk",
+      "kind": "binary",
+      "role": "verification_key",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness/target/vk_fields.json",
+      "kind": "json",
+      "role": "verification_key_fields",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness_helper/target/silent_witness_helper.json",
+      "kind": "json",
+      "role": "acir",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness_aggregator/target/silent_witness_aggregator.json",
+      "kind": "json",
+      "role": "acir",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness_aggregator/target/vk",
+      "kind": "binary",
+      "role": "verification_key",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness_aggregator/target/vk_fields.json",
+      "kind": "json",
+      "role": "verification_key_fields",
+      "required": true
+    },
+    {
+      "path": "zk/noir/silent_witness_aggregator_helper/target/silent_witness_aggregator_helper.json",
+      "kind": "json",
+      "role": "acir",
+      "required": true
+    },
+    {
+      "path": "zk/noir/revocation_witness/target/revocation_witness.json",
+      "kind": "json",
+      "role": "acir",
+      "required": false
+    },
+    {
+      "path": "zk/noir/revocation_witness_helper/target/revocation_witness_helper.json",
+      "kind": "json",
+      "role": "acir",
+      "required": false
+    },
+    {
+      "path": "frontend/public/noir/silent_witness.json",
+      "kind": "json",
+      "role": "published_acir",
+      "required": false
+    },
+    {
+      "path": "frontend/public/noir/silent_witness_helper.json",
+      "kind": "json",
+      "role": "published_acir",
+      "required": false
+    },
+    {
+      "path": "frontend/public/noir/silent_witness_aggregator.json",
+      "kind": "json",
+      "role": "published_acir",
+      "required": false
+    },
+    {
+      "path": "frontend/public/noir/silent_witness_aggregator_helper.json",
+      "kind": "json",
+      "role": "published_acir",
+      "required": false
+    }
+  ],
+
+  "provenance_sources": {
+    "description": "Files whose content defines the artifacts. Their digests are recorded in every manifest so a manifest can be traced back to an exact source tree without trusting the surrounding commit.",
+    "globs": [
+      "zk/noir/*/src/*.nr",
+      "zk/noir/*/Nargo.toml",
+      "zk/toolchain.lock.json"
+    ]
+  },
+
+  "limits": {
+    "description": "Bounds applied while walking the tree, so a hostile or corrupted working directory cannot turn a build check into a denial of service.",
+    "max_artifact_bytes": 268435456,
+    "max_artifacts": 64,
+    "max_provenance_files": 512
+  }
+}
